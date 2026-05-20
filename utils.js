@@ -57,6 +57,89 @@ function hexToHsb(hex) {
   return rgb ? rgbToHsb(rgb.r, rgb.g, rgb.b) : null;
 }
 
+function linearRgbFromSrgb8(r, g, b) {
+  const lin = (c) => {
+    const v = constrain(c / 255, 0, 1);
+    return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  };
+  return [lin(r), lin(g), lin(b)];
+}
+
+function srgb8FromLinearRgb(lr, lg, lb) {
+  const enc = (c) => {
+    const v = constrain(c, 0, 1);
+    const s = v <= 0.0031308 ? 12.92 * v : 1.055 * Math.pow(v, 1 / 2.4) - 0.055;
+    return Math.round(constrain(s, 0, 1) * 255);
+  };
+  return { r: enc(lr), g: enc(lg), b: enc(lb) };
+}
+
+/** Oklab (Björn Ottosson) — perceptually uniform lightness. */
+function rgbToOklab(r, g, b) {
+  const [lr, lg, lb] = linearRgbFromSrgb8(r, g, b);
+  const l = Math.cbrt(0.4122214708 * lr + 0.5363325363 * lg + 0.0514459929 * lb);
+  const m = Math.cbrt(0.2119034982 * lr + 0.6806995451 * lg + 0.1073969566 * lb);
+  const s = Math.cbrt(0.0883024619 * lr + 0.2817188376 * lg + 0.6299787005 * lb);
+  return {
+    L: 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+    a: 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+    b: 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+  };
+}
+
+function oklabToRgb(L, a, b) {
+  const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+  const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+  const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+  const l = l_ * l_ * l_, m = m_ * m_ * m_, s = s_ * s_ * s_;
+  const lr = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+  const lg = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+  const lb = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+  return srgb8FromLinearRgb(constrain(lr, 0, 1), constrain(lg, 0, 1), constrain(lb, 0, 1));
+}
+
+function oklabChroma(a, b) {
+  return Math.sqrt(a * a + b * b);
+}
+
+function oklabHueDeg(a, b) {
+  return (Math.atan2(b, a) * 180 / Math.PI + 360) % 360;
+}
+
+function oklabFromHue(L, C, hueDeg) {
+  const rad = (hueDeg * Math.PI) / 180;
+  return oklabToRgb(L, C * Math.cos(rad), C * Math.sin(rad));
+}
+
+/** Anchor L/C for hue-only strips; falls back when chroma is near zero. */
+function oklabAnchorFromRgb(r, g, b, minChroma = 0.04) {
+  const lab = rgbToOklab(r, g, b);
+  const C = oklabChroma(lab.a, lab.b);
+  return { L: lab.L, C: C < 0.008 ? minChroma : C };
+}
+
+/** Vivid fixed anchor for user hue strip (~legacy HSB S/B 100, uniform Oklab lightness). */
+function getUserHueStripOklabTarget() {
+  let sumL = 0, n = 0, maxC = 0;
+  for (let h = 0; h < 360; h += 30) {
+    const rgb = hsbToRgb(h, 100, 100);
+    const lab = rgbToOklab(rgb.r, rgb.g, rgb.b);
+    sumL += lab.L;
+    n++;
+    maxC = Math.max(maxC, oklabChroma(lab.a, lab.b));
+  }
+  const meanL = sumL / (n || 1);
+  return { L: Math.min(0.9, meanL + 0.15), C: Math.min(0.4, maxC * 1.1) };
+}
+
+/** Push user strip picks to full HSB brightness while keeping the Oklab hue. */
+function boostUserStripHsb(hsb) {
+  const hh = ((+hsb.h || 0) + 360) % 360;
+  const ss = Math.min(100, Math.max(+hsb.s || 0, 98));
+  const bb = 100;
+  return { h: hh, s: ss, b: bb };
+}
+
 function normalizeHexColor(hex) {
   if (typeof hex !== 'string') return null;
   const m = /^#([0-9a-f]{6})$/i.exec(hex.trim());

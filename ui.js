@@ -24,12 +24,17 @@ let activeUserStageIndex = -1;
 let _userStageTarget = null;
 let userStageTransitionActive = false;
 let userStageParticleSyncPending = false;
+let userStageFadePhase = null;
+let userStageFadeT = 0;
+let userStageFadeFrom = 3;
 
 const userColorTool = {
   container: null,
-  particleSpectrum: null,
+  colorPicker: null,
   particleValueText: null
 };
+
+const USER_STAGE_FADE_PEAK = 70;
 
 const USER_STAGE_BASE = {
   zoom: 3,
@@ -39,6 +44,7 @@ const USER_STAGE_BASE = {
   count: 5000,
   speed: 0.2,
   fade: 3,
+  grav: 1,
   interactive: true
 };
 
@@ -94,9 +100,145 @@ function createSpectrumPicker(parent, w, h, onChange, onCommit) {
   return spectrum;
 }
 
+const USER_SPECTRUM_HUES = 16;
+const USER_SPECTRUM_STRIP_H = 22;
+
+function buildUserHueStripImage(ctx, w, h, anchor) {
+  const img = ctx.createImageData(w, h);
+  const data = img.data;
+  const { L, C } = anchor;
+  for (let x = 0; x < w; x++) {
+    const col = Math.min(USER_SPECTRUM_HUES - 1, Math.floor((x / w) * USER_SPECTRUM_HUES));
+    const hue = ((col + 0.5) / USER_SPECTRUM_HUES) * 360;
+    const labRgb = oklabFromHue(L, C, hue);
+    const boosted = boostUserStripHsb(rgbToHsb(labRgb.r, labRgb.g, labRgb.b));
+    const vivid = hsbToRgb(boosted.h, boosted.s, boosted.b);
+    for (let y = 0; y < h; y++) {
+      const idx = (y * w + x) * 4;
+      data.set([vivid.r, vivid.g, vivid.b, 255], idx);
+    }
+  }
+  return img;
+}
+
+/** Idle = selected color; hover/drag = horizontal 16-hue strip (hue only, constant Oklab L/C). */
+function createUserColorPicker(parent, onChange, onCommit) {
+  const spectrum = createElement('canvas').parent(parent).addClass('user-color-spectrum').style('display', 'block');
+  const canvas = spectrum.elt;
+  const ctx = canvas.getContext('2d', { willReadFrequently: false });
+  let idleHex = '#000000';
+  /** Computed in setup (needs p5 constrain via hsbToRgb). */
+  const stripAnchor = getUserHueStripOklabTarget();
+  let active = false;
+  let dragging = false;
+  let last = null;
+  let spectrumImg = null;
+  let lastSpectrumW = 0;
+  let lastSpectrumH = 0;
+  let lastStripAnchorKey = '';
+
+  const wrapEl = () => parent?.elt || canvas.parentElement;
+
+  const resizeCanvas = (expanded) => {
+    const wrap = wrapEl();
+    const w = Math.max(1, Math.round(wrap?.clientWidth || canvas.clientWidth || 1));
+    const ch = USER_SPECTRUM_STRIP_H;
+    canvas.width = w;
+    canvas.height = ch;
+    canvas.style.height = `${ch}px`;
+    if (expanded) {
+      const anchorKey = `${stripAnchor.L.toFixed(4)}:${stripAnchor.C.toFixed(4)}`;
+      if (!spectrumImg || w !== lastSpectrumW || anchorKey !== lastStripAnchorKey) {
+        spectrumImg = buildUserHueStripImage(ctx, w, ch, stripAnchor);
+        lastSpectrumW = w;
+        lastSpectrumH = ch;
+        lastStripAnchorKey = anchorKey;
+      }
+      ctx.putImageData(spectrumImg, 0, 0);
+    } else {
+      drawIdle();
+    }
+  };
+
+  const drawIdle = () => {
+    const n = normalizeHexColor(idleHex);
+    if (!n) return;
+    const rgb = hexToRgb(n);
+    if (!rgb) return;
+    ctx.fillStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  };
+
+  const showSpectrum = () => {
+    active = true;
+    resizeCanvas(true);
+  };
+
+  const hideSpectrum = () => {
+    active = false;
+    resizeCanvas(false);
+  };
+
+  const pickFromEvent = (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    const nx = constrain(ev.clientX - rect.left, 0, rect.width) / (rect.width || 1);
+    const col = constrain(Math.floor(nx * USER_SPECTRUM_HUES), 0, USER_SPECTRUM_HUES - 1);
+    const hue = ((col + 0.5) / USER_SPECTRUM_HUES) * 360;
+    const rgb = oklabFromHue(stripAnchor.L, stripAnchor.C, hue);
+    const hsb = boostUserStripHsb(rgbToHsb(rgb.r, rgb.g, rgb.b));
+    onChange(hsb);
+    return hsb;
+  };
+
+  canvas.addEventListener('pointerdown', (ev) => {
+    if (!active) showSpectrum();
+    dragging = true;
+    canvas.setPointerCapture(ev.pointerId);
+    last = pickFromEvent(ev);
+  });
+  canvas.addEventListener('pointermove', (ev) => { if (dragging) last = pickFromEvent(ev); });
+  const endDrag = () => {
+    if (dragging && last && onCommit) onCommit(last);
+    dragging = false;
+    last = null;
+  };
+  canvas.addEventListener('pointerup', endDrag);
+  canvas.addEventListener('pointercancel', endDrag);
+  canvas.addEventListener('pointerenter', () => { if (!dragging) showSpectrum(); });
+  canvas.addEventListener('pointerleave', () => { if (dragging) return; hideSpectrum(); });
+
+  spectrum._setIdleHex = (hex) => {
+    const n = normalizeHexColor(hex);
+    if (n) {
+      idleHex = n;
+      if (!active && !dragging) drawIdle();
+    }
+  };
+
+  spectrum._resize = () => resizeCanvas(active || dragging);
+
+  if (typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(() => spectrum._resize());
+    ro.observe(wrapEl());
+    spectrum._resizeObserver = ro;
+  }
+
+  requestAnimationFrame(() => resizeCanvas(false));
+  return spectrum;
+}
+
 function syncUserParticleColorUI(hex) {
   if (userColorTool.particleValueText) userColorTool.particleValueText.value(hex.toUpperCase());
-  if (userColorTool.particleSpectrum?._setIdleHex) userColorTool.particleSpectrum._setIdleHex(hex);
+  if (userColorTool.colorPicker?._setIdleHex) userColorTool.colorPicker._setIdleHex(hex);
+}
+
+function layoutUserControlsWidth() {
+  const controls = document.getElementById('user-controls-root');
+  const stageRoot = document.getElementById('user-stage-root');
+  if (!controls || !stageRoot) return;
+  const stageW = stageRoot.getBoundingClientRect().width;
+  if (stageW > 0) controls.style.width = `${Math.ceil(stageW)}px`;
+  if (userColorTool.colorPicker?._resize) userColorTool.colorPicker._resize();
 }
 
 function applyParticleHSB(hsb, commit = false) {
@@ -528,7 +670,7 @@ function isPointerOverUI() {
   const x = typeof winMouseX === 'number' ? winMouseX : mouseX, y = typeof winMouseY === 'number' ? winMouseY : mouseY;
   const el = document.elementFromPoint(x, y);
   if (!el) return false;
-  const roots = ['ui-root', 'timeline-root', 'user-color-root', 'user-stage-root', 'mode-toggle-root'];
+  const roots = ['ui-root', 'timeline-root', 'user-controls-root', 'user-color-root', 'user-stage-root', 'mode-toggle-root'];
   for (const id of roots) {
     const root = document.getElementById(id);
     if (root && root.contains(el)) return true;
@@ -544,6 +686,7 @@ function selectUserStage(index) {
   _targetValues = null;
   _userStageTarget = preset;
   userStageTransitionActive = true;
+  beginUserStageFadePulse();
 
   interactionEnabled = true;
   if (colorTool.interactiveModeCheckbox) {
@@ -572,26 +715,28 @@ function initUserStageUI() {
     });
     root.appendChild(btn);
   });
+  requestAnimationFrame(layoutUserControlsWidth);
 }
 
 function initUserColorUI() {
   if (userColorTool.container) return;
 
   const initialParticle = colorTool.particleBaseHSB ?? (particles?.length ? { h: particles[0].h, s: particles[0].s, b: particles[0].b } : { h: 215, s: 85, b: 50 });
+  const initialHex = hsbToHex(initialParticle.h, initialParticle.s, initialParticle.b);
   const container = createDiv('');
   try { if (document.getElementById('user-color-root')) container.parent('user-color-root'); } catch { /* ignore */ }
-  container.style('user-select', 'none').addClass('ui-panel');
+  container.style('user-select', 'none').addClass('user-color-inner');
 
-  const particleRow = createDiv('').parent(container).addClass('ui-row');
-  createSpan('Particles').parent(particleRow);
-  const particleValueText = createInput(hsbToHex(initialParticle.h, initialParticle.s, initialParticle.b).toUpperCase()).parent(particleRow).addClass('ui-hex');
-  const particleSpectrumWrap = createDiv('').parent(container);
-  const particleSpectrum = createSpectrumPicker(particleSpectrumWrap, 160, 72, (h) => applyParticleHSB(h, false), (h) => applyParticleHSB(h, true));
+  const hexRow = createDiv('').parent(container).addClass('ui-row').style('justify-content', 'center').style('margin-bottom', '6px');
+  const particleValueText = createInput(initialHex.toUpperCase()).parent(hexRow).addClass('ui-hex');
+  const pickerWrap = createDiv('').parent(container).style('width', '100%');
+  const colorPicker = createUserColorPicker(pickerWrap, (h) => applyParticleHSB(h, false), (h) => applyParticleHSB(h, true));
 
   wireColorHexInput(particleValueText, applyParticleHSB, () => colorTool.particleBaseHSB);
 
-  Object.assign(userColorTool, { container, particleSpectrum, particleValueText });
-  syncUserParticleColorUI(hsbToHex(initialParticle.h, initialParticle.s, initialParticle.b));
+  Object.assign(userColorTool, { container, colorPicker, particleValueText });
+  syncUserParticleColorUI(initialHex);
+  requestAnimationFrame(layoutUserControlsWidth);
 }
 
 let modeToggleUserBtn = null;
@@ -608,15 +753,13 @@ function setUiMode(mode) {
 
   const uiRoot = document.getElementById('ui-root');
   const timelineRoot = document.getElementById('timeline-root');
-  const userColorRoot = document.getElementById('user-color-root');
-  const userStageRoot = document.getElementById('user-stage-root');
+  const userControlsRoot = document.getElementById('user-controls-root');
 
   if (uiMode === 'user') {
     deselectValueSet();
     if (uiRoot) uiRoot.style.display = 'none';
     if (timelineRoot) timelineRoot.style.display = 'none';
-    if (userColorRoot) userColorRoot.style.display = 'block';
-    if (userStageRoot) userStageRoot.style.display = 'flex';
+    if (userControlsRoot) userControlsRoot.style.display = 'flex';
     if (colorTool.transparentBackgroundCheckbox) {
       try { colorTool.transparentBackgroundCheckbox.checked(false); } catch { /* ignore */ }
     }
@@ -625,12 +768,13 @@ function setUiMode(mode) {
     }
     if (activeUserStageIndex < 0) selectUserStage(0);
     else selectUserStage(activeUserStageIndex);
+    requestAnimationFrame(layoutUserControlsWidth);
   } else {
     _userStageTarget = null;
     userStageTransitionActive = false;
     userStageParticleSyncPending = false;
-    if (userColorRoot) userColorRoot.style.display = 'none';
-    if (userStageRoot) userStageRoot.style.display = 'none';
+    userStageFadePhase = null;
+    if (userControlsRoot) userControlsRoot.style.display = 'none';
     if (timelineRoot) timelineRoot.style.display = '';
     activeUserStageIndex = -1;
     document.querySelectorAll('.user-stage-btn').forEach((btn) => btn.classList.remove('active'));
@@ -704,6 +848,7 @@ function initTimelineUI() {
   document.addEventListener('pointerdown', (e) => {
     const isTimelineOrUI = !!e.target.closest('.ui-root')
       || !!e.target.closest('.timeline-container')
+      || !!e.target.closest('.user-controls-root')
       || !!e.target.closest('.user-color-root')
       || !!e.target.closest('.user-stage-root')
       || !!e.target.closest('.mode-toggle-root');
@@ -750,6 +895,57 @@ function minAngleDiff(a, b) {
   return diff;
 }
 
+function easeInOutCubic(t) {
+  const x = constrain(t, 0, 1);
+  return x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2;
+}
+
+function beginUserStageFadePulse() {
+  userStageFadePhase = 'up';
+  userStageFadeT = 0;
+  userStageFadeFrom = colorTool?.trailFadeSlider
+    ? parseFloat(colorTool.trailFadeSlider.value()) || USER_STAGE_BASE.fade
+    : USER_STAGE_BASE.fade;
+}
+
+/** Ease fade up to 70, then down to target; returns true while the pulse is running. */
+function stepUserStageFadePulse(targetFade) {
+  if (!userStageFadePhase || !colorTool?.trailFadeSlider) return false;
+
+  const fadeStep = 0.045;
+  userStageFadeT = Math.min(1, userStageFadeT + fadeStep);
+  const eased = easeInOutCubic(userStageFadeT);
+  let v;
+
+  if (userStageFadePhase === 'up') {
+    v = userStageFadeFrom + (USER_STAGE_FADE_PEAK - userStageFadeFrom) * eased;
+    if (userStageFadeT >= 1) {
+      userStageFadePhase = 'down';
+      userStageFadeT = 0;
+      userStageFadeFrom = USER_STAGE_FADE_PEAK;
+      v = USER_STAGE_FADE_PEAK;
+    }
+  } else {
+    const endFade = targetFade ?? USER_STAGE_BASE.fade;
+    v = userStageFadeFrom + (endFade - userStageFadeFrom) * eased;
+    if (userStageFadeT >= 1) {
+      userStageFadePhase = null;
+      userStageFadeT = 0;
+      v = endFade;
+    }
+  }
+
+  const slider = colorTool.trailFadeSlider;
+  const cur = parseFloat(slider.value());
+  if (Math.abs(cur - v) > 0.01) {
+    slider.value(v);
+    slider.elt.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  }
+
+  return userStageFadePhase !== null;
+}
+
 function timelineLoop() {
   requestAnimationFrame(timelineLoop);
 
@@ -786,12 +982,18 @@ function timelineLoop() {
 
     setLerp(colorTool.particleSizeSlider, activeTarget.size);
     setLerp(colorTool.particleCountSlider, activeTarget.count);
-    setLerp(colorTool.trailFadeSlider, activeTarget.fade);
+    if (!isUserStage) {
+      setLerp(colorTool.trailFadeSlider, activeTarget.fade);
+    }
     if (colorTool.trailLowAlphaCullSlider && activeTarget.trailCull !== undefined && activeTarget.trailCull !== null) {
       setLerp(colorTool.trailLowAlphaCullSlider, activeTarget.trailCull);
     }
 
     if (isUserStage) {
+      if (stepUserStageFadePulse(activeTarget.fade)) anyChanged = true;
+      if (colorTool.gravitationSlider && activeTarget.grav !== undefined) {
+        setLerp(colorTool.gravitationSlider, activeTarget.grav);
+      }
       if (colorTool.particleOverlapSlider && activeTarget.overlap !== undefined) {
         setLerp(colorTool.particleOverlapSlider, activeTarget.overlap);
       }
@@ -857,10 +1059,11 @@ function timelineLoop() {
       }
     }
 
-    if (!anyChanged) {
+    if (!anyChanged && !(isUserStage && userStageFadePhase)) {
       if (isUserStage) {
         _userStageTarget = null;
         userStageTransitionActive = false;
+        userStageFadePhase = null;
         userStageParticleSyncPending = true;
       } else {
         _targetValues = null;
