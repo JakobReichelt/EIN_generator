@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Europe Flow Field (p5.js)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        /* Keep form controls and scrollbars readable in dark contexts. */
+        color-scheme: dark;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        background: #0b0f14;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font: 12px/1.35 'Hanken Grotesk', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      canvas {
+        display: block;
+      }
+
+      /* High-contrast overlay panel used for all UI elements. */
+      .ui-panel {
+        background: rgba(0, 0, 0, 0.55);
+        color: #fff;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 12px;
+        padding: 12px;
+      }
+
+      .ui-panel a {
+        color: inherit;
+      }
+
+      .ui-panel input,
+      .ui-panel button,
+      .ui-panel select {
+        font: inherit;
+      }
+
+      .ui-root {
+        position: fixed;
+        left: 12px;
+        top: 12px;
+        z-index: 10;
+        max-width: 260px;
+      }
+
+      .ui-section {
+        padding-top: 10px;
+        margin-top: 10px;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .ui-section:first-child {
+        padding-top: 0;
+        margin-top: 0;
+        border-top: none;
+      }
+
+      .ui-section-title {
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        opacity: 0.85;
+        margin-bottom: 8px;
+      }
+
+      .ui-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .ui-row + .ui-row {
+        margin-top: 6px;
+      }
+
+      .ui-hex {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+        font-size: 11px;
+        opacity: 0.9;
+      }
+
+      .ui-panel input.ui-hex {
+        width: 7.25em;
+        max-width: 100%;
+        margin: 0;
+        padding: 2px 6px;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        background: rgba(0, 0, 0, 0.35);
+        color: inherit;
+        opacity: 1;
+        user-select: text;
+      }
+
+      .ui-panel input.ui-hex:focus {
+        outline: none;
+        border-color: rgba(255, 255, 255, 0.45);
+        background: rgba(0, 0, 0, 0.5);
+      }
+
+      .ui-swatch {
+        width: 18px;
+        height: 18px;
+        padding: 0;
+        border-radius: 6px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        outline: none;
+        background: transparent;
+        cursor: pointer;
+      }
+
+      .ui-swatch.is-selected {
+        outline: 2px solid rgba(255, 255, 255, 0.9);
+        outline-offset: 1px;
+      }
+
+      .ui-swatch-grid {
+        display: grid;
+        grid-template-columns: repeat(6, 18px);
+        gap: 6px;
+        margin-top: 6px;
+        max-width: 100%;
+      }
+
+      .ui-preview {
+        width: 14px;
+        height: 14px;
+        border-radius: 4px;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+      }
+
+      .ui-panel input[type='range'] {
+        width: 160px;
+      }
+
+      .ui-panel input[type='color'] {
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 6px;
+        padding: 0;
+        background: transparent;
+        vertical-align: middle;
+      }
+
+      .ui-panel input[type='range'] {
+        vertical-align: middle;
+      }
+
+      .ui-shortcuts {
+        opacity: 0.85;
+        font-size: 11px;
+      }
+
+      .timeline-container {
+        position: fixed;
+        bottom: 60px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 60%;
+        max-width: 800px;
+        height: 24px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        z-index: 20;
+      }
+
+      .timeline-line {
+        position: absolute;
+        top: 50%;
+        left: 20px;
+        right: 20px;
+        height: 2px;
+        background: rgba(255, 255, 255, 0.3);
+        transform: translateY(-50%);
+        z-index: 1;
+      }
+
+      .timeline-dot {
+        position: relative;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.5);
+        border: 2px solid transparent;
+        outline: 1px solid black;
+        cursor: pointer;
+        z-index: 2;
+        transition: all 0.2s;
+      }
+
+      .timeline-dot:hover {
+        background: #fff;
+      }
+
+      .timeline-dot.active {
+        background: #fff;
+        transform: scale(1.4);
+        box-shadow: 0 0 12px rgba(255, 255, 255, 0.7);
+      }
+
+      .user-color-root {
+        position: fixed;
+        left: 12px;
+        bottom: 12px;
+        z-index: 20;
+        max-width: 220px;
+      }
+
+      .user-stage-root {
+        position: fixed;
+        bottom: 60px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        gap: 24px;
+        z-index: 20;
+      }
+
+      .user-stage-btn {
+        min-width: 48px;
+        height: 36px;
+        padding: 0 14px;
+        border-radius: 18px;
+        border: 2px solid rgba(255, 255, 255, 0.35);
+        background: rgba(255, 255, 255, 0.5);
+        color: #fff;
+        font: inherit;
+        font-size: 13px;
+        cursor: pointer;
+        transition: all 0.2s;
+        outline: 1px solid rgba(0, 0, 0, 0.6);
+      }
+
+      .user-stage-btn:hover {
+        background: #fff;
+        color: #111;
+      }
+
+      .user-stage-btn.active {
+        background: #fff;
+        color: #111;
+        transform: scale(1.08);
+        box-shadow: 0 0 12px rgba(255, 255, 255, 0.7);
+      }
+
+      .mode-toggle-root {
+        position: fixed;
+        right: 12px;
+        bottom: 12px;
+        z-index: 25;
+      }
+
+      .mode-switch {
+        display: flex;
+        align-items: center;
+        gap: 0;
+        padding: 3px;
+        border-radius: 999px;
+        background: rgba(0, 0, 0, 0.55);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        color: #fff;
+        font: inherit;
+        font-size: 11px;
+        user-select: none;
+      }
+
+      .mode-switch-btn {
+        padding: 6px 12px;
+        border: none;
+        border-radius: 999px;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+        opacity: 0.7;
+      }
+
+      .mode-switch-btn.is-active {
+        background: rgba(255, 255, 255, 0.92);
+        color: #111;
+        opacity: 1;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="ui-root" class="ui-root" aria-label="Sketch controls" style="display: none;"></div>
+    <div id="timeline-root" class="timeline-container"></div>
+    <div id="user-color-root" class="user-color-root" style="display: none;" aria-label="Particle color"></div>
+    <div id="user-stage-root" class="user-stage-root" aria-label="Stage presets"></div>
+    <div id="mode-toggle-root" class="mode-toggle-root" aria-label="UI mode"></div>
+    <script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
+    <script src="config.js"></script>
+    <script src="utils.js"></script>
+    <script src="map.js"></script>
+    <script src="particle.js"></script>
+    <script src="ui.js"></script>
+    <script src="sketch.js"></script>
+  </body>
+</html>
