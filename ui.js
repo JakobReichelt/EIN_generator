@@ -100,6 +100,11 @@ function createSpectrumPicker(parent, w, h, onChange, onCommit) {
   return spectrum;
 }
 
+const USER_COLOR_PRESETS = [
+  { fg: '#FA032E', bg: '#35ABE2' },
+  { fg: '#C2FF36', bg: '#0770AC' }
+];
+
 const USER_SPECTRUM_HUES = 16;
 const USER_SPECTRUM_STRIP_H = 22;
 
@@ -241,7 +246,7 @@ function layoutUserControlsWidth() {
   if (userColorTool.colorPicker?._resize) userColorTool.colorPicker._resize();
 }
 
-function applyParticleHSB(hsb, commit = false) {
+function applyParticleHSB(hsb, commit = false, opts = {}) {
   const hh = ((+hsb.h || 0) + 360) % 360, ss = constrain(+hsb.s || 0, 0, 100), bb = constrain(+hsb.b || 0, 0, 100);
   const idx = Math.max(0, Math.min(2, colorTool.activeParticlePaletteIndex | 0));
   if (!Array.isArray(colorTool.particlePaletteHSB) || colorTool.particlePaletteHSB.length !== 3) colorTool.particlePaletteHSB = [null, null, null];
@@ -254,13 +259,39 @@ function applyParticleHSB(hsb, commit = false) {
   if (commit) pushRecentColor('particle', hex);
   if (colorTool.refreshParticlePaletteUI) colorTool.refreshParticlePaletteUI();
 
-  if (uiMode === 'user') {
+  if (uiMode === 'user' && !opts?.keepBackground) {
     if (colorTool.transparentBackgroundCheckbox) {
       try { colorTool.transparentBackgroundCheckbox.checked(false); } catch { /* ignore */ }
     }
     const bgHsb = computeHighContrastBackgroundHSB({ h: hh, s: ss, b: bb });
     applyBackgroundHSB(bgHsb, false);
   }
+}
+
+function applyUserColorPreset(fgHex, bgHex) {
+  const fg = normalizeHexColor(fgHex);
+  const bg = normalizeHexColor(bgHex);
+  if (!fg || !bg) return;
+  const fgHsb = hexToHsb(fg);
+  const bgHsb = hexToHsb(bg);
+  if (!fgHsb || !bgHsb) return;
+  if (colorTool.transparentBackgroundCheckbox) {
+    try { colorTool.transparentBackgroundCheckbox.checked(false); } catch { /* ignore */ }
+  }
+  applyParticleHSB(fgHsb, true, { keepBackground: true });
+  applyBackgroundHSB(bgHsb, true);
+}
+
+function createUserColorPresetRow(parent) {
+  const row = createDiv('').parent(parent).addClass('user-color-preset-row');
+  USER_COLOR_PRESETS.forEach((preset, i) => {
+    const btn = createButton('').parent(row).addClass('user-color-preset');
+    btn.elt.type = 'button';
+    btn.elt.setAttribute('aria-label', `Color preset ${i + 1}: ${preset.fg}`);
+    btn.style('background', preset.fg);
+    btn.mousePressed(() => applyUserColorPreset(preset.fg, preset.bg));
+  });
+  return row;
 }
 
 function applyBackgroundHSB(hsb, commit = false) {
@@ -729,6 +760,7 @@ function initUserColorUI() {
 
   const hexRow = createDiv('').parent(container).addClass('ui-row').style('justify-content', 'center').style('margin-bottom', '6px');
   const particleValueText = createInput(initialHex.toUpperCase()).parent(hexRow).addClass('ui-hex');
+  createUserColorPresetRow(container);
   const pickerWrap = createDiv('').parent(container).style('width', '100%');
   const colorPicker = createUserColorPicker(pickerWrap, (h) => applyParticleHSB(h, false), (h) => applyParticleHSB(h, true));
 
