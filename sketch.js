@@ -170,6 +170,15 @@ function mousePressed() {
 }
 
 function mouseWheel(event) {
+  if (typeof isPointerOverUI === 'function' && isPointerOverUI()) return;
+  if (typeof isEditingTextInput === 'function' && isEditingTextInput()) return;
+  if (!camera) return;
+
+  const delta = event?.delta ?? event?.deltaY ?? 0;
+  if (!delta) return;
+
+  setCameraZoom((camera.zoom || 1) * Math.exp(-delta * 0.001));
+  return false;
 }
 
 function pruneInteractionImpulses(nowMs) {
@@ -188,6 +197,13 @@ function pruneInteractionImpulses(nowMs) {
 }
 
 function keyPressed() {
+  if (typeof isUserUiMode === 'function' && isUserUiMode() && !isEditingTextInput()) {
+    if (keyCode === LEFT_ARROW) { moveCamera(-1, 0); return false; }
+    if (keyCode === RIGHT_ARROW) { moveCamera(1, 0); return false; }
+    if (keyCode === UP_ARROW) { moveCamera(0, -1); return false; }
+    if (keyCode === DOWN_ARROW) { moveCamera(0, 1); return false; }
+  }
+
   if (key === ' ') { const sep = CONFIG.particles?.separation; if (sep) sep.enabled = !sep.enabled; }
   else if (key === 'r' || key === 'R') resetSketch();
   else if (key === 's' || key === 'S') {

@@ -368,6 +368,28 @@ function getCameraWorldBounds() {
   return { l: cx - halfW, r: cx + halfW, t: cy - halfH, b: cy + halfH };
 }
 
+function moveCamera(dx, dy) {
+  if (typeof camera === 'undefined' || !camera) return;
+  const step = 90 / (camera.zoom || 1);
+  camera.center.x += dx * step;
+  camera.center.y += dy * step;
+}
+
+function setCameraZoom(nextZoom) {
+  if (!camera) return;
+  const minZ = camera.minZoom ?? 1;
+  const maxZ = camera.maxZoom ?? 40;
+  camera.zoom = constrain(+nextZoom || 1, minZ, maxZ);
+  if (typeof syncCameraZoomUI === 'function') syncCameraZoomUI();
+}
+
+function isEditingTextInput() {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName?.toLowerCase();
+  return tag === 'input' || tag === 'textarea' || el.isContentEditable === true;
+}
+
 function segmentIntersectsBounds(a, b, bounds) {
   const minX = Math.min(a.x, b.x), maxX = Math.max(a.x, b.x);
   const minY = Math.min(a.y, b.y), maxY = Math.max(a.y, b.y);

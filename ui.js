@@ -600,29 +600,21 @@ function initColorTool() {
   const zoomValueText = createSpan(Number(typeof camera !== 'undefined' ? camera.zoom : 1).toFixed(1)).parent(zoomRow).addClass('ui-hex');
   
   colorTool.zoomSlider = zoomSlider;
+  colorTool.zoomValueText = zoomValueText;
 
   zoomSlider.input(() => {
-    const v = +zoomSlider.value() || 1;
-    zoomValueText.html(v.toFixed(1));
-    if (typeof camera !== 'undefined' && camera) camera.zoom = v;
+    setCameraZoom(+zoomSlider.value() || 1);
   });
 
   const positionRow = createDiv('').parent(cameraSec).addClass('ui-row').style('justify-content', 'center').style('margin-top', '10px');
   const dpadContainer = createDiv('').parent(positionRow).style('display', 'grid').style('grid-template-areas', '". up ." "left . right" ". down ."').style('gap', '4px');
   
-  const moveCam = (dx, dy) => {
-    if (typeof camera === 'undefined' || !camera) return;
-    const step = 50 / (camera.zoom || 1);
-    camera.center.x += dx * step;
-    camera.center.y += dy * step;
-  };
-  
   const btnStyle = 'width: 32px; height: 32px; font-size: 16px; border-radius: 4px; cursor: pointer; border: 1px solid rgba(255,255,255,0.22); background: rgba(0,0,0,0.4); color: white; display: flex; align-items: center; justify-content: center; padding: 0;';
 
-  createButton('↑').parent(dpadContainer).style('grid-area', 'up').mousePressed(() => moveCam(0, -1)).elt.style.cssText += btnStyle;
-  createButton('←').parent(dpadContainer).style('grid-area', 'left').mousePressed(() => moveCam(-1, 0)).elt.style.cssText += btnStyle;
-  createButton('→').parent(dpadContainer).style('grid-area', 'right').mousePressed(() => moveCam(1, 0)).elt.style.cssText += btnStyle;
-  createButton('↓').parent(dpadContainer).style('grid-area', 'down').mousePressed(() => moveCam(0, 1)).elt.style.cssText += btnStyle;
+  createButton('↑').parent(dpadContainer).style('grid-area', 'up').mousePressed(() => moveCamera(0, -1)).elt.style.cssText += btnStyle;
+  createButton('←').parent(dpadContainer).style('grid-area', 'left').mousePressed(() => moveCamera(-1, 0)).elt.style.cssText += btnStyle;
+  createButton('→').parent(dpadContainer).style('grid-area', 'right').mousePressed(() => moveCamera(1, 0)).elt.style.cssText += btnStyle;
+  createButton('↓').parent(dpadContainer).style('grid-area', 'down').mousePressed(() => moveCamera(0, 1)).elt.style.cssText += btnStyle;
 
   // Interaction
   const interactionSec = createSection('Interaction');
@@ -701,6 +693,18 @@ function isPointerOverColorTool() {
   if (colorTool?.container?.elt && colorTool.container.elt.contains(el)) return true;
   if (userColorTool?.container?.elt && userColorTool.container.elt.contains(el)) return true;
   return false;
+}
+
+function isUserUiMode() {
+  return uiMode === 'user';
+}
+
+function syncCameraZoomUI() {
+  if (!camera) return;
+  const v = camera.zoom;
+  const slider = colorTool?.zoomSlider;
+  if (slider) slider.value(v);
+  if (colorTool?.zoomValueText) colorTool.zoomValueText.html(v.toFixed(1));
 }
 
 function isPointerOverUI() {
