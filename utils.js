@@ -171,58 +171,94 @@ function contrastRatio(rgbA, rgbB) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-/** Picks a light, vivid background HSB that contrasts strongly with the particle color. */
+/** WCAG 2.1 contrast thresholds (Adobe Color Contrast Checker AA / AAA). */
+const WCAG_CONTRAST_MIN = {
+  AA_LARGE_TEXT: 3,
+  AA_SMALL_TEXT: 4.5,
+  AAA_LARGE_TEXT: 4.5,
+  AAA_SMALL_TEXT: 7,
+  AA_UI_GRAPHICS: 3
+};
+
+function wcagContrastPasses(ratio, level = 'AA', category = 'small') {
+  const r = +ratio || 0;
+  if (level === 'AAA') {
+    if (category === 'large') return r >= WCAG_CONTRAST_MIN.AAA_LARGE_TEXT;
+    if (category === 'ui') return r >= WCAG_CONTRAST_MIN.AA_UI_GRAPHICS;
+    return r >= WCAG_CONTRAST_MIN.AAA_SMALL_TEXT;
+  }
+  if (category === 'large') return r >= WCAG_CONTRAST_MIN.AA_LARGE_TEXT;
+  if (category === 'ui') return r >= WCAG_CONTRAST_MIN.AA_UI_GRAPHICS;
+  return r >= WCAG_CONTRAST_MIN.AA_SMALL_TEXT;
+}
+
+/**
+ * Same hue; find a passing HSB brightness for this saturation.
+ * Light foregrounds → saturated dark band (not pure black). Dark foregrounds → bright band.
+ */
+function findWcagBackgroundAtHueSat(h, s, fgRgb, fgLum, minRatio) {
+  const wantLightBg = fgLum < 0.5;
+  const passings = [];
+
+  for (let b = 1; b <= 100; b++) {
+    const ratio = contrastRatio(fgRgb, hsbToRgb(h, s, b));
+    if (ratio >= minRatio) passings.push({ b, ratio });
+  }
+  if (!passings.length) return null;
+
+  if (wantLightBg) {
+    const sweet = passings.filter((p) => p.b >= 60);
+    const pool = sweet.length ? sweet : passings;
+    const aaa = pool.filter((p) => p.ratio >= WCAG_CONTRAST_MIN.AAA_SMALL_TEXT);
+    const aa = pool.filter((p) => p.ratio >= minRatio);
+    const pick = (aaa.length ? aaa : aa).reduce((a, p) => (p.b > a.b ? p : a));
+    return { h, s, b: pick.b };
+  }
+
+  const sweet = passings.filter((p) => p.b >= 12 && p.b <= 58);
+  const pool = sweet.length ? sweet : passings;
+  const aaa = pool.filter((p) => p.ratio >= WCAG_CONTRAST_MIN.AAA_SMALL_TEXT);
+  const aa = pool.filter((p) => p.ratio >= minRatio);
+  const pick = (aaa.length ? aaa : aa).reduce((a, p) => (p.b > a.b ? p : a));
+  return { h, s, b: pick.b };
+}
+
+/** Auto background for user mode: same hue, opposite brightness, WCAG AA small-text contrast. */
 function computeHighContrastBackgroundHSB(particleHsb) {
   const ph = ((+particleHsb?.h || 0) + 360) % 360;
   const ps = constrain(+particleHsb?.s || 0, 0, 100);
   const pb = constrain(+particleHsb?.b || 0, 0, 100);
-  const particleRgb = hsbToRgb(ph, ps, pb);
+  const fgRgb = hsbToRgb(ph, ps, pb);
+  const fgLum = relativeLuminance(fgRgb.r, fgRgb.g, fgRgb.b);
+  const minRatio = WCAG_CONTRAST_MIN.AA_SMALL_TEXT;
+  const wantLightBg = fgLum < 0.5;
 
-  const hueOffsets = [120, 150, 180, 210];
-  const satLevels = [55, 70, 82, 92];
-  const brightLevels = [78, 85, 90, 94, 98];
+  const satLevels = ps < 8
+    ? [8, 12, 18, 26, 36]
+    : wantLightBg
+      ? [constrain(ps * 0.85, 10, 100), ps, constrain(ps * 0.72, 10, 100), 20, 12, 8]
+      : [100, 92, 85, Math.max(ps, 80), ps, constrain(ps * 0.88, 10, 100)];
 
-  let best = { h: (ph + 180) % 360, s: 75, b: 90 };
-  let bestScore = -1;
+  let best = null;
+  let bestRatio = -1;
 
-  const scoreCandidate = (bgRgb, bh, s, b) => {
-    const contrast = contrastRatio(particleRgb, bgRgb);
-    const bgLum = relativeLuminance(bgRgb.r, bgRgb.g, bgRgb.b);
-    return contrast * (1 + bgLum * 0.45);
+  for (const s of satLevels) {
+    const candidate = findWcagBackgroundAtHueSat(ph, s, fgRgb, fgLum, minRatio);
+    if (!candidate) continue;
+    const ratio = contrastRatio(fgRgb, hsbToRgb(candidate.h, candidate.s, candidate.b));
+    if (!best || ratio > bestRatio) {
+      best = candidate;
+      bestRatio = ratio;
+    }
+  }
+
+  if (best) return best;
+
+  return {
+    h: ph,
+    s: ps < 8 ? 12 : (wantLightBg ? constrain(ps * 0.72, 10, 100) : 100),
+    b: wantLightBg ? 96 : 24
   };
-
-  for (const offset of hueOffsets) {
-    const bh = (ph + offset) % 360;
-    for (const s of satLevels) {
-      for (const b of brightLevels) {
-        const bgRgb = hsbToRgb(bh, s, b);
-        const score = scoreCandidate(bgRgb, bh, s, b);
-        if (score > bestScore) {
-          bestScore = score;
-          best = { h: bh, s, b };
-        }
-      }
-    }
-  }
-
-  if (pb > 55) {
-    for (const offset of hueOffsets) {
-      const bh = (ph + offset) % 360;
-      for (const b of [82, 88, 92, 96]) {
-        const bgRgb = hsbToRgb(bh, 65, b);
-        const score = scoreCandidate(bgRgb, bh, 65, b);
-        if (score > bestScore) {
-          bestScore = score;
-          best = { h: bh, s: 65, b };
-        }
-      }
-    }
-  }
-
-  best.b = Math.min(100, Math.max(80, best.b + 6));
-  if (best.s > 88) best.s = 88;
-
-  return best;
 }
 
 // Canvas Painting Utilities

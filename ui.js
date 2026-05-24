@@ -31,7 +31,8 @@ let userStageFadeFrom = 3;
 const userColorTool = {
   container: null,
   colorPicker: null,
-  particleValueText: null
+  particleValueText: null,
+  backgroundValueText: null
 };
 
 const USER_STAGE_FADE_PEAK = 70;
@@ -237,6 +238,10 @@ function syncUserParticleColorUI(hex) {
   if (userColorTool.colorPicker?._setIdleHex) userColorTool.colorPicker._setIdleHex(hex);
 }
 
+function syncUserBackgroundColorUI(hex) {
+  if (userColorTool.backgroundValueText) userColorTool.backgroundValueText.value(hex.toUpperCase());
+}
+
 function layoutUserControlsWidth() {
   const controls = document.getElementById('user-controls-root');
   const stageRoot = document.getElementById('user-stage-root');
@@ -300,6 +305,7 @@ function applyBackgroundHSB(hsb, commit = false) {
   const hex = hsbToHex(hh, ss, bb);
   if (colorTool.backgroundValueText) colorTool.backgroundValueText.value(hex.toUpperCase());
   if (colorTool.backgroundSpectrum?._setIdleHex) colorTool.backgroundSpectrum._setIdleHex(hex);
+  syncUserBackgroundColorUI(hex);
   if (!isTransparentBackgroundEnabled() && typeof trailLayer !== 'undefined' && trailLayer) trailLayer.clear();
   if (commit) pushRecentColor('background', hex);
 }
@@ -344,11 +350,11 @@ function saveRecentColors(storageKey, colors) {
   try { localStorage.setItem(storageKey, JSON.stringify(colors)); } catch { /* ignore */ }
 }
 
-function wireColorHexInput(input, applyHSB, getCanonicalHsb) {
+function wireColorHexInput(input, applyHSB, getCanonicalHsb, ariaLabel = 'Hex color') {
   const el = input.elt;
   el.setAttribute('spellcheck', 'false');
   el.setAttribute('autocomplete', 'off');
-  el.setAttribute('aria-label', 'Hex color');
+  el.setAttribute('aria-label', ariaLabel);
 
   const commitOrRevert = () => {
     const hex = parseHexInput(el.value);
@@ -753,21 +759,26 @@ function initUserColorUI() {
   if (userColorTool.container) return;
 
   const initialParticle = colorTool.particleBaseHSB ?? (particles?.length ? { h: particles[0].h, s: particles[0].s, b: particles[0].b } : { h: 215, s: 85, b: 50 });
+  const initialBg = colorTool.backgroundHSB ?? { h: 0, s: 0, b: 100 };
   const initialHex = hsbToHex(initialParticle.h, initialParticle.s, initialParticle.b);
+  const initialBgHex = hsbToHex(initialBg.h, initialBg.s, initialBg.b);
   const container = createDiv('');
   try { if (document.getElementById('user-color-root')) container.parent('user-color-root'); } catch { /* ignore */ }
   container.style('user-select', 'none').addClass('user-color-inner');
 
-  const hexRow = createDiv('').parent(container).addClass('ui-row').style('justify-content', 'center').style('margin-bottom', '6px');
+  const hexRow = createDiv('').parent(container).addClass('ui-row user-color-hex-row').style('justify-content', 'center').style('margin-bottom', '6px');
   const particleValueText = createInput(initialHex.toUpperCase()).parent(hexRow).addClass('ui-hex');
+  const backgroundValueText = createInput(initialBgHex.toUpperCase()).parent(hexRow).addClass('ui-hex');
   createUserColorPresetRow(container);
   const pickerWrap = createDiv('').parent(container).style('width', '100%');
   const colorPicker = createUserColorPicker(pickerWrap, (h) => applyParticleHSB(h, false), (h) => applyParticleHSB(h, true));
 
-  wireColorHexInput(particleValueText, applyParticleHSB, () => colorTool.particleBaseHSB);
+  wireColorHexInput(particleValueText, applyParticleHSB, () => colorTool.particleBaseHSB, 'Particle hex color');
+  wireColorHexInput(backgroundValueText, applyBackgroundHSB, () => colorTool.backgroundHSB, 'Background hex color');
 
-  Object.assign(userColorTool, { container, colorPicker, particleValueText });
+  Object.assign(userColorTool, { container, colorPicker, particleValueText, backgroundValueText });
   syncUserParticleColorUI(initialHex);
+  syncUserBackgroundColorUI(initialBgHex);
   requestAnimationFrame(layoutUserControlsWidth);
 }
 

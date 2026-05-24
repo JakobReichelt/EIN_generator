@@ -245,6 +245,12 @@
         background: transparent;
         color: #000;
         text-align: center;
+        user-select: text;
+      }
+
+      #user-color-root .user-color-hex-row {
+        gap: 10px;
+        flex-wrap: nowrap;
       }
 
       .user-color-root {
@@ -354,7 +360,7 @@
     <div id="ui-root" class="ui-root" aria-label="Sketch controls" style="display: none;"></div>
     <div id="timeline-root" class="timeline-container"></div>
     <div id="user-controls-root" class="user-controls-root" aria-label="User controls">
-      <div id="user-color-root" class="user-color-root" aria-label="Particle color"></div>
+      <div id="user-color-root" class="user-color-root" aria-label="Particle and background color"></div>
       <div id="user-stage-root" class="user-stage-root" aria-label="Stage presets"></div>
     </div>
     <div id="mode-toggle-root" class="mode-toggle-root" aria-label="UI mode"></div>
