@@ -22,7 +22,9 @@ const CONFIG = {
     margin: 70, strokeAlpha: 140, strokeWeight: 1, samplesPerSegment: 9,
     imagePath: 'Assets/EU Map Clean.jpg',
     imagePaths: [
+      'Assets/EU Map Clean.png',
       'Assets/EU Map Clean.jpg',
+      'Assets/EU Map Clean with borders.jpg',
       'Assets/EU stars black.png',
       'Assets/Eu stars outline.png',
       'Assets/Star Image.png',

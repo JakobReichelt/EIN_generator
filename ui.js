@@ -21,26 +21,36 @@ let colorTool = {
 const UI_MODE_STORAGE_KEY = 'eiz.generativ.uiMode.v1';
 let uiMode = 'dev';
 let activeUserStageIndex = -1;
+let userStageSlider = null;
+let activeUserColorPresetIndex = -1;
+let userColorPresetButtons = [];
 let _userStageTarget = null;
 let userStageTransitionActive = false;
 let userStageParticleSyncPending = false;
 let userStageFadePhase = null;
 let userStageFadeT = 0;
 let userStageFadeFrom = 3;
+let userStageFadeTarget = 3;
+let userStageLastAppliedSize = null;
+let userStageSliderDragging = false;
+
+const USER_STAGE_SIZE_FADE_THRESHOLD = 0.35;
 
 const userColorTool = {
   container: null,
-  colorPicker: null,
   particleValueText: null,
-  backgroundValueText: null
+  backgroundValueText: null,
+  transparentBackgroundToggle: null
 };
+
+let transparentBackgroundEnabled = false;
 
 const USER_STAGE_FADE_PEAK = 70;
 
 const USER_STAGE_BASE = {
   zoom: 3,
   overlap: 0,
-  colorVar: 0,
+  colorVar: 20,
   trailCull: 15,
   count: 5000,
   speed: 0.2,
@@ -50,10 +60,77 @@ const USER_STAGE_BASE = {
 };
 
 const USER_STAGE_PRESETS = [
-  { ...USER_STAGE_BASE, size: 3 },
+  { ...USER_STAGE_BASE, size: 3, speed: 0.1 },
   { ...USER_STAGE_BASE, size: 35 },
   { ...USER_STAGE_BASE, size: 100 }
 ];
+
+const USER_STAGE_NUMERIC_KEYS = ['size', 'zoom', 'overlap', 'colorVar', 'trailCull', 'count', 'speed', 'fade', 'grav'];
+
+function interpolateUserStageAt(t) {
+  const presets = USER_STAGE_PRESETS;
+  if (!presets.length) return null;
+  const maxT = presets.length - 1;
+  t = constrain(t, 0, maxT);
+  if (presets.length === 1) return { ...presets[0] };
+
+  const i = Math.min(Math.floor(t), maxT - 1);
+  const localT = t - i;
+  const a = presets[i];
+  const b = presets[i + 1];
+  const out = { interactive: localT >= 0.5 ? b.interactive : a.interactive };
+  for (const key of USER_STAGE_NUMERIC_KEYS) {
+    if (a[key] !== undefined && b[key] !== undefined) {
+      out[key] = a[key] + (b[key] - a[key]) * localT;
+    }
+  }
+  return out;
+}
+
+function applyUserStageAt(t) {
+  const target = interpolateUserStageAt(t);
+  if (!target || !colorTool?.particleSizeSlider) return;
+
+  activeUserStageIndex = Math.round(t);
+  _targetValues = null;
+  _userStageTarget = null;
+  userStageTransitionActive = false;
+  userStageFadeTarget = target.fade;
+
+  const sizeChanged = userStageLastAppliedSize === null
+    || Math.abs(target.size - userStageLastAppliedSize) >= USER_STAGE_SIZE_FADE_THRESHOLD;
+
+  setSliderValue(colorTool.particleSizeSlider, target.size);
+  setSliderValue(colorTool.particleCountSlider, target.count);
+  if (colorTool.trailLowAlphaCullSlider) setSliderValue(colorTool.trailLowAlphaCullSlider, target.trailCull);
+  if (colorTool.gravitationSlider) setSliderValue(colorTool.gravitationSlider, target.grav);
+  if (colorTool.particleOverlapSlider) setSliderValue(colorTool.particleOverlapSlider, target.overlap);
+  if (colorTool.colorVarianceSlider) setSliderValue(colorTool.colorVarianceSlider, target.colorVar);
+  if (colorTool.particleSpeedSlider) setSliderValue(colorTool.particleSpeedSlider, target.speed);
+
+  if (userStageLastAppliedSize === null) {
+    userStageLastAppliedSize = target.size;
+    userStageFadePhase = null;
+    setSliderValue(colorTool.trailFadeSlider, target.fade);
+  } else if (sizeChanged) {
+    userStageLastAppliedSize = target.size;
+    if (userStageSliderDragging) {
+      userStageFadePhase = null;
+      setSliderValue(colorTool.trailFadeSlider, USER_STAGE_FADE_PEAK);
+    } else {
+      beginUserStageFadePulse();
+    }
+  } else if (!userStageFadePhase) {
+    setSliderValue(colorTool.trailFadeSlider, target.fade);
+  }
+
+  if (target.zoom !== undefined) setCameraZoom(target.zoom);
+
+  interactionEnabled = !!target.interactive;
+  if (colorTool.interactiveModeCheckbox) {
+    try { colorTool.interactiveModeCheckbox.checked(interactionEnabled); } catch { /* ignore */ }
+  }
+}
 
 function createSpectrumPicker(parent, w, h, onChange, onCommit) {
   const spectrum = createElement('canvas').parent(parent).style('display', 'block').style('margin-top', '4px')
@@ -101,141 +178,61 @@ function createSpectrumPicker(parent, w, h, onChange, onCommit) {
   return spectrum;
 }
 
-const USER_COLOR_PRESETS = [
-  { fg: '#FA032E', bg: '#35ABE2' },
-  { fg: '#C2FF36', bg: '#0770AC' }
+const PARTICLE_PALETTE_SLOTS = 11;
+
+const PRIDE_PARTICLE_COLORS = [
+  '#E40303', '#FF8C00', '#FFED00', '#008026', '#004CFF', '#732982',
+  '#8B5A2B', '#000000', '#FFFFFF', '#5EC8E8', '#FF8FC7'
 ];
 
-const USER_SPECTRUM_HUES = 16;
-const USER_SPECTRUM_STRIP_H = 22;
+const USER_COLOR_PRESETS = [
+  { fg: '#BDFA4F', bg: '#0073A9' },
+  { fg: '#FA032E', bg: '#35ABE2' },
+  { fg: '#E9FE90', bg: '#FF9401' },
+  { fg: '#E9E137', bg: '#6D00C9' },
+  { fg: '#E6FD94', bg: '#001BB8' },
+  { fg: '#FFF200', bg: '#4163FF' },
+  { bg: '#EAF6FF', particleColors: PRIDE_PARTICLE_COLORS }
+];
 
-function buildUserHueStripImage(ctx, w, h, anchor) {
-  const img = ctx.createImageData(w, h);
-  const data = img.data;
-  const { L, C } = anchor;
-  for (let x = 0; x < w; x++) {
-    const col = Math.min(USER_SPECTRUM_HUES - 1, Math.floor((x / w) * USER_SPECTRUM_HUES));
-    const hue = ((col + 0.5) / USER_SPECTRUM_HUES) * 360;
-    const labRgb = oklabFromHue(L, C, hue);
-    const boosted = boostUserStripHsb(rgbToHsb(labRgb.r, labRgb.g, labRgb.b));
-    const vivid = hsbToRgb(boosted.h, boosted.s, boosted.b);
-    for (let y = 0; y < h; y++) {
-      const idx = (y * w + x) * 4;
-      data.set([vivid.r, vivid.g, vivid.b, 255], idx);
-    }
-  }
-  return img;
+function ensureParticlePaletteSize() {
+  if (!Array.isArray(colorTool.particlePaletteHSB)) colorTool.particlePaletteHSB = [];
+  while (colorTool.particlePaletteHSB.length < PARTICLE_PALETTE_SLOTS) colorTool.particlePaletteHSB.push(null);
+  if (colorTool.particlePaletteHSB.length > PARTICLE_PALETTE_SLOTS) colorTool.particlePaletteHSB.length = PARTICLE_PALETTE_SLOTS;
 }
 
-/** Idle = selected color; hover/drag = horizontal 16-hue strip (hue only, constant Oklab L/C). */
-function createUserColorPicker(parent, onChange, onCommit) {
-  const spectrum = createElement('canvas').parent(parent).addClass('user-color-spectrum').style('display', 'block');
-  const canvas = spectrum.elt;
-  const ctx = canvas.getContext('2d', { willReadFrequently: false });
-  let idleHex = '#000000';
-  /** Computed in setup (needs p5 constrain via hsbToRgb). */
-  const stripAnchor = getUserHueStripOklabTarget();
-  let active = false;
-  let dragging = false;
-  let last = null;
-  let spectrumImg = null;
-  let lastSpectrumW = 0;
-  let lastSpectrumH = 0;
-  let lastStripAnchorKey = '';
-
-  const wrapEl = () => parent?.elt || canvas.parentElement;
-
-  const resizeCanvas = (expanded) => {
-    const wrap = wrapEl();
-    const w = Math.max(1, Math.round(wrap?.clientWidth || canvas.clientWidth || 1));
-    const ch = USER_SPECTRUM_STRIP_H;
-    canvas.width = w;
-    canvas.height = ch;
-    canvas.style.height = `${ch}px`;
-    if (expanded) {
-      const anchorKey = `${stripAnchor.L.toFixed(4)}:${stripAnchor.C.toFixed(4)}`;
-      if (!spectrumImg || w !== lastSpectrumW || anchorKey !== lastStripAnchorKey) {
-        spectrumImg = buildUserHueStripImage(ctx, w, ch, stripAnchor);
-        lastSpectrumW = w;
-        lastSpectrumH = ch;
-        lastStripAnchorKey = anchorKey;
+function repickAllParticlePaletteSlots() {
+  try {
+    if (Array.isArray(particles)) {
+      for (const p of particles) {
+        if (p && typeof p.pickPaletteSlot === 'function') p.pickPaletteSlot();
       }
-      ctx.putImageData(spectrumImg, 0, 0);
-    } else {
-      drawIdle();
     }
-  };
+  } catch { /* ignore */ }
+}
 
-  const drawIdle = () => {
-    const n = normalizeHexColor(idleHex);
-    if (!n) return;
-    const rgb = hexToRgb(n);
-    if (!rgb) return;
-    ctx.fillStyle = `rgb(${rgb.r},${rgb.g},${rgb.b})`;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  };
-
-  const showSpectrum = () => {
-    active = true;
-    resizeCanvas(true);
-  };
-
-  const hideSpectrum = () => {
-    active = false;
-    resizeCanvas(false);
-  };
-
-  const pickFromEvent = (ev) => {
-    const rect = canvas.getBoundingClientRect();
-    const nx = constrain(ev.clientX - rect.left, 0, rect.width) / (rect.width || 1);
-    const col = constrain(Math.floor(nx * USER_SPECTRUM_HUES), 0, USER_SPECTRUM_HUES - 1);
-    const hue = ((col + 0.5) / USER_SPECTRUM_HUES) * 360;
-    const rgb = oklabFromHue(stripAnchor.L, stripAnchor.C, hue);
-    const hsb = boostUserStripHsb(rgbToHsb(rgb.r, rgb.g, rgb.b));
-    onChange(hsb);
-    return hsb;
-  };
-
-  canvas.addEventListener('pointerdown', (ev) => {
-    if (!active) showSpectrum();
-    dragging = true;
-    canvas.setPointerCapture(ev.pointerId);
-    last = pickFromEvent(ev);
-  });
-  canvas.addEventListener('pointermove', (ev) => { if (dragging) last = pickFromEvent(ev); });
-  const endDrag = () => {
-    if (dragging && last && onCommit) onCommit(last);
-    dragging = false;
-    last = null;
-  };
-  canvas.addEventListener('pointerup', endDrag);
-  canvas.addEventListener('pointercancel', endDrag);
-  canvas.addEventListener('pointerenter', () => { if (!dragging) showSpectrum(); });
-  canvas.addEventListener('pointerleave', () => { if (dragging) return; hideSpectrum(); });
-
-  spectrum._setIdleHex = (hex) => {
-    const n = normalizeHexColor(hex);
-    if (n) {
-      idleHex = n;
-      if (!active && !dragging) drawIdle();
-    }
-  };
-
-  spectrum._resize = () => resizeCanvas(active || dragging);
-
-  if (typeof ResizeObserver !== 'undefined') {
-    const ro = new ResizeObserver(() => spectrum._resize());
-    ro.observe(wrapEl());
-    spectrum._resizeObserver = ro;
+function getUserPresetSwatchStyle(preset) {
+  if (preset.particleColors?.length) {
+    const n = preset.particleColors.length;
+    const stops = preset.particleColors.map((c, i) => {
+      const pct0 = ((i / n) * 100).toFixed(1);
+      const pct1 = (((i + 1) / n) * 100).toFixed(1);
+      return `${c} ${pct0}% ${pct1}%`;
+    });
+    return `linear-gradient(to right, ${stops.join(', ')})`;
   }
+  return `linear-gradient(to bottom, ${preset.fg} 50%, ${preset.bg} 50%)`;
+}
 
-  requestAnimationFrame(() => resizeCanvas(false));
-  return spectrum;
+function getUserPresetAriaLabel(preset, index) {
+  if (preset.particleColors?.length) {
+    return `Color preset ${index + 1}: Pride (${preset.particleColors.join(', ')}) / ${preset.bg}`;
+  }
+  return `Color preset ${index + 1}: ${preset.fg} / ${preset.bg}`;
 }
 
 function syncUserParticleColorUI(hex) {
   if (userColorTool.particleValueText) userColorTool.particleValueText.value(hex.toUpperCase());
-  if (userColorTool.colorPicker?._setIdleHex) userColorTool.colorPicker._setIdleHex(hex);
 }
 
 function syncUserBackgroundColorUI(hex) {
@@ -244,17 +241,16 @@ function syncUserBackgroundColorUI(hex) {
 
 function layoutUserControlsWidth() {
   const controls = document.getElementById('user-controls-root');
-  const stageRoot = document.getElementById('user-stage-root');
-  if (!controls || !stageRoot) return;
-  const stageW = stageRoot.getBoundingClientRect().width;
-  if (stageW > 0) controls.style.width = `${Math.ceil(stageW)}px`;
-  if (userColorTool.colorPicker?._resize) userColorTool.colorPicker._resize();
+  const colorRoot = document.getElementById('user-color-root');
+  if (!controls || !colorRoot) return;
+  const w = colorRoot.getBoundingClientRect().width;
+  if (w > 0) controls.style.width = `${Math.ceil(w)}px`;
 }
 
 function applyParticleHSB(hsb, commit = false, opts = {}) {
   const hh = ((+hsb.h || 0) + 360) % 360, ss = constrain(+hsb.s || 0, 0, 100), bb = constrain(+hsb.b || 0, 0, 100);
-  const idx = Math.max(0, Math.min(2, colorTool.activeParticlePaletteIndex | 0));
-  if (!Array.isArray(colorTool.particlePaletteHSB) || colorTool.particlePaletteHSB.length !== 3) colorTool.particlePaletteHSB = [null, null, null];
+  ensureParticlePaletteSize();
+  const idx = Math.max(0, Math.min(PARTICLE_PALETTE_SLOTS - 1, colorTool.activeParticlePaletteIndex | 0));
   colorTool.particlePaletteHSB[idx] = { h: hh, s: ss, b: bb };
   colorTool.particleBaseHSB = { h: hh, s: ss, b: bb };
   const hex = hsbToHex(hh, ss, bb);
@@ -265,36 +261,90 @@ function applyParticleHSB(hsb, commit = false, opts = {}) {
   if (colorTool.refreshParticlePaletteUI) colorTool.refreshParticlePaletteUI();
 
   if (uiMode === 'user' && !opts?.keepBackground) {
-    if (colorTool.transparentBackgroundCheckbox) {
-      try { colorTool.transparentBackgroundCheckbox.checked(false); } catch { /* ignore */ }
-    }
+    setTransparentBackgroundEnabled(false);
     const bgHsb = computeHighContrastBackgroundHSB({ h: hh, s: ss, b: bb });
     applyBackgroundHSB(bgHsb, false);
   }
 }
 
-function applyUserColorPreset(fgHex, bgHex) {
+function applyUserMultiColorPreset(preset, presetIndex = -1) {
+  const bg = normalizeHexColor(preset.bg);
+  if (!bg) return;
+  const bgHsb = hexToHsb(bg);
+  if (!bgHsb) return;
+
+  ensureParticlePaletteSize();
+  for (let i = 0; i < PARTICLE_PALETTE_SLOTS; i++) colorTool.particlePaletteHSB[i] = null;
+
+  let firstHsb = null;
+  const colors = preset.particleColors ?? [];
+  for (let i = 0; i < colors.length && i < PARTICLE_PALETTE_SLOTS; i++) {
+    const hex = normalizeHexColor(colors[i]);
+    if (!hex) continue;
+    const hsb = hexToHsb(hex);
+    if (!hsb) continue;
+    colorTool.particlePaletteHSB[i] = { h: hsb.h, s: hsb.s, b: hsb.b };
+    if (!firstHsb) firstHsb = hsb;
+  }
+  if (!firstHsb) return;
+
+  if (presetIndex >= 0) {
+    activeUserColorPresetIndex = presetIndex;
+    refreshUserColorPresetUI();
+  }
+  setTransparentBackgroundEnabled(false);
+  colorTool.activeParticlePaletteIndex = 0;
+  applyParticleHSB(firstHsb, true, { keepBackground: true });
+  applyBackgroundHSB(bgHsb, true);
+  if (colorTool.refreshParticlePaletteUI) colorTool.refreshParticlePaletteUI();
+  repickAllParticlePaletteSlots();
+}
+
+function applyUserColorPresetFromEntry(preset, presetIndex = -1) {
+  if (preset.particleColors?.length) {
+    applyUserMultiColorPreset(preset, presetIndex);
+    return;
+  }
+  applyUserColorPreset(preset.fg, preset.bg, presetIndex);
+}
+
+function applyUserColorPreset(fgHex, bgHex, presetIndex = -1) {
   const fg = normalizeHexColor(fgHex);
   const bg = normalizeHexColor(bgHex);
   if (!fg || !bg) return;
   const fgHsb = hexToHsb(fg);
   const bgHsb = hexToHsb(bg);
   if (!fgHsb || !bgHsb) return;
-  if (colorTool.transparentBackgroundCheckbox) {
-    try { colorTool.transparentBackgroundCheckbox.checked(false); } catch { /* ignore */ }
+  if (presetIndex >= 0) {
+    activeUserColorPresetIndex = presetIndex;
+    refreshUserColorPresetUI();
   }
+  ensureParticlePaletteSize();
+  for (let i = 0; i < PARTICLE_PALETTE_SLOTS; i++) colorTool.particlePaletteHSB[i] = null;
+  setTransparentBackgroundEnabled(false);
+  colorTool.activeParticlePaletteIndex = 0;
   applyParticleHSB(fgHsb, true, { keepBackground: true });
   applyBackgroundHSB(bgHsb, true);
+  if (colorTool.refreshParticlePaletteUI) colorTool.refreshParticlePaletteUI();
+  repickAllParticlePaletteSlots();
+}
+
+function refreshUserColorPresetUI() {
+  userColorPresetButtons.forEach((btn, i) => {
+    btn.classList.toggle('is-active', i === activeUserColorPresetIndex);
+  });
 }
 
 function createUserColorPresetRow(parent) {
   const row = createDiv('').parent(parent).addClass('user-color-preset-row');
+  userColorPresetButtons = [];
   USER_COLOR_PRESETS.forEach((preset, i) => {
     const btn = createButton('').parent(row).addClass('user-color-preset');
     btn.elt.type = 'button';
-    btn.elt.setAttribute('aria-label', `Color preset ${i + 1}: ${preset.fg}`);
-    btn.style('background', preset.fg);
-    btn.mousePressed(() => applyUserColorPreset(preset.fg, preset.bg));
+    btn.elt.setAttribute('aria-label', getUserPresetAriaLabel(preset, i));
+    btn.style('background', getUserPresetSwatchStyle(preset));
+    btn.mousePressed(() => applyUserColorPresetFromEntry(preset, i));
+    userColorPresetButtons.push(btn.elt);
   });
   return row;
 }
@@ -440,11 +490,8 @@ function initColorTool() {
   createSpan('Background').parent(bgRow);
   const backgroundValueText = createInput(hsbToHex(initialBg.h, initialBg.s, initialBg.b).toUpperCase()).parent(bgRow).addClass('ui-hex');
   const transparentBackgroundCheckbox = createCheckbox('Transparent', false).parent(bgRow).input(() => {
-    if (isTransparentBackgroundEnabled()) hardClearMainCanvas();
-    else {
-      if (typeof trailLayer !== 'undefined' && trailLayer) trailLayer.clear();
-      hardClearMainCanvas();
-    }
+    const on = transparentBackgroundCheckbox.checked() === true || transparentBackgroundCheckbox.checked() === 'true';
+    setTransparentBackgroundEnabled(on);
   });
   const backgroundSpectrumWrap = createDiv('').parent(colorsSec).style('margin-top', '6px');
   const backgroundRecentRow = createDiv('').parent(createDiv('').parent(colorsSec)).addClass('ui-swatch-grid');
@@ -551,7 +598,9 @@ function initColorTool() {
     btn.mousePressed(() => setActiveParticlePaletteIndex(i));
     btn.elt.addEventListener('contextmenu', (ev) => {
       ev.preventDefault();
-      if (!Array.isArray(colorTool.particlePaletteHSB) || colorTool.particlePaletteHSB.length !== 3) colorTool.particlePaletteHSB = [null, null, null];
+      if (!Array.isArray(colorTool.particlePaletteHSB) || colorTool.particlePaletteHSB.length !== PARTICLE_PALETTE_SLOTS) {
+        ensureParticlePaletteSize();
+      }
       colorTool.particlePaletteHSB[i] = null;
       refreshParticlePaletteUI();
     });
@@ -649,7 +698,11 @@ function initColorTool() {
     colorVarianceSlider, colorVarianceValueText,
     interactiveModeCheckbox,
     applyParticleHSB, applyBackgroundHSB,
-    particlePaletteHSB: [initialParticle, null, null],
+    particlePaletteHSB: (() => {
+      const p = Array(PARTICLE_PALETTE_SLOTS).fill(null);
+      p[0] = initialParticle;
+      return p;
+    })(),
     activeParticlePaletteIndex: 0,
     particlePaletteButtons,
     setActiveParticlePaletteIndex,
@@ -667,7 +720,43 @@ function initColorTool() {
   } catch { /* ignore */ }
 }
 
-function isTransparentBackgroundEnabled() { const cb = colorTool?.transparentBackgroundCheckbox; return cb ? cb.checked() === true || cb.checked() === 'true' : false; }
+function setTransparentBackgroundEnabled(enabled) {
+  const on = !!enabled;
+  transparentBackgroundEnabled = on;
+  if (colorTool.transparentBackgroundCheckbox) {
+    try { colorTool.transparentBackgroundCheckbox.checked(on); } catch { /* ignore */ }
+  }
+  const toggle = userColorTool.transparentBackgroundToggle;
+  if (toggle) {
+    toggle.classList.toggle('is-active', on);
+    toggle.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+  if (on) hardClearMainCanvas();
+  else {
+    if (typeof trailLayer !== 'undefined' && trailLayer) trailLayer.clear();
+    hardClearMainCanvas();
+  }
+}
+
+function isTransparentBackgroundEnabled() {
+  return transparentBackgroundEnabled;
+}
+
+function createUserTransparentBgToggle(parentEl) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.className = 'user-transparent-bg-toggle';
+  btn.setAttribute('aria-label', 'Transparent background');
+  btn.setAttribute('aria-pressed', 'false');
+  btn.innerHTML = '<span class="user-transparent-bg-check" aria-hidden="true"></span>';
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setTransparentBackgroundEnabled(!isTransparentBackgroundEnabled());
+  });
+  parentEl.appendChild(btn);
+  return btn;
+}
+
 function getParticleSpeed() { const s = colorTool?.particleSpeedSlider; return s ? constrain(+s.value() || 0, 0, 2) : CONFIG.particles.speed; }
 function getParticleStrokeWeight() { const s = colorTool?.particleSizeSlider; return s ? constrain(+s.value(), 0.05, 100) : CONFIG.particles.strokeWeight; }
 function getParticleMix() { const s = colorTool?.particleMixSlider; return s ? constrain((+s.value() || 0) / 100, 0, 1) : 1; }
@@ -707,6 +796,13 @@ function syncCameraZoomUI() {
   if (colorTool?.zoomValueText) colorTool.zoomValueText.html(v.toFixed(1));
 }
 
+function noteManualZoomChange() {
+  _userStageTarget = null;
+  userStageTransitionActive = false;
+  userStageFadePhase = null;
+  _targetValues = null;
+}
+
 function isPointerOverUI() {
   const x = typeof winMouseX === 'number' ? winMouseX : mouseX, y = typeof winMouseY === 'number' ? winMouseY : mouseY;
   const el = document.elementFromPoint(x, y);
@@ -720,23 +816,9 @@ function isPointerOverUI() {
 }
 
 function selectUserStage(index) {
-  const preset = USER_STAGE_PRESETS[index];
-  if (!preset || !colorTool?.particleSizeSlider) return;
-
-  activeUserStageIndex = index;
-  _targetValues = null;
-  _userStageTarget = preset;
-  userStageTransitionActive = true;
-  beginUserStageFadePulse();
-
-  interactionEnabled = true;
-  if (colorTool.interactiveModeCheckbox) {
-    try { colorTool.interactiveModeCheckbox.checked(true); } catch { /* ignore */ }
-  }
-
-  document.querySelectorAll('.user-stage-btn').forEach((btn, i) => {
-    btn.classList.toggle('active', i === index);
-  });
+  const t = Math.max(0, Math.min(USER_STAGE_PRESETS.length - 1, index));
+  if (userStageSlider) userStageSlider.value = String(t);
+  applyUserStageAt(t);
 }
 
 function initUserStageUI() {
@@ -744,18 +826,36 @@ function initUserStageUI() {
   if (!root || root.dataset.initialized === '1') return;
   root.dataset.initialized = '1';
 
-  USER_STAGE_PRESETS.forEach((_, i) => {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'user-stage-btn';
-    btn.textContent = String(i + 1);
-    btn.setAttribute('aria-label', `Stage ${i + 1}`);
-    btn.addEventListener('pointerdown', (e) => {
-      e.stopPropagation();
-      selectUserStage(i);
-    });
-    root.appendChild(btn);
+  const wrap = document.createElement('div');
+  wrap.className = 'user-stage-wrap';
+
+  userStageSlider = document.createElement('input');
+  userStageSlider.type = 'range';
+  userStageSlider.className = 'user-stage-slider';
+  userStageSlider.min = '0';
+  userStageSlider.max = String(Math.max(0, USER_STAGE_PRESETS.length - 1));
+  userStageSlider.step = '0.01';
+  userStageSlider.value = '0';
+  userStageSlider.setAttribute('aria-label', 'Stage preset');
+
+  userStageSlider.addEventListener('input', (e) => {
+    e.stopPropagation();
+    applyUserStageAt(parseFloat(userStageSlider.value) || 0);
   });
+  userStageSlider.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    userStageSliderDragging = true;
+  });
+  const endUserStageSliderDrag = () => {
+    if (!userStageSliderDragging) return;
+    userStageSliderDragging = false;
+    beginUserStageFadeEaseDown();
+  };
+  userStageSlider.addEventListener('pointerup', endUserStageSliderDrag);
+  userStageSlider.addEventListener('pointercancel', endUserStageSliderDrag);
+
+  wrap.appendChild(userStageSlider);
+  root.appendChild(wrap);
   requestAnimationFrame(layoutUserControlsWidth);
 }
 
@@ -773,14 +873,14 @@ function initUserColorUI() {
   const hexRow = createDiv('').parent(container).addClass('ui-row user-color-hex-row').style('justify-content', 'center').style('margin-bottom', '6px');
   const particleValueText = createInput(initialHex.toUpperCase()).parent(hexRow).addClass('ui-hex');
   const backgroundValueText = createInput(initialBgHex.toUpperCase()).parent(hexRow).addClass('ui-hex');
-  createUserColorPresetRow(container);
-  const pickerWrap = createDiv('').parent(container).style('width', '100%');
-  const colorPicker = createUserColorPicker(pickerWrap, (h) => applyParticleHSB(h, false), (h) => applyParticleHSB(h, true));
+  const controlsRow = createDiv('').parent(container).addClass('user-color-controls-row');
+  createUserColorPresetRow(controlsRow);
+  const transparentBackgroundToggle = createUserTransparentBgToggle(controlsRow.elt);
 
   wireColorHexInput(particleValueText, applyParticleHSB, () => colorTool.particleBaseHSB, 'Particle hex color');
   wireColorHexInput(backgroundValueText, applyBackgroundHSB, () => colorTool.backgroundHSB, 'Background hex color');
 
-  Object.assign(userColorTool, { container, colorPicker, particleValueText, backgroundValueText });
+  Object.assign(userColorTool, { container, particleValueText, backgroundValueText, transparentBackgroundToggle });
   syncUserParticleColorUI(initialHex);
   syncUserBackgroundColorUI(initialBgHex);
   requestAnimationFrame(layoutUserControlsWidth);
@@ -807,24 +907,22 @@ function setUiMode(mode) {
     if (uiRoot) uiRoot.style.display = 'none';
     if (timelineRoot) timelineRoot.style.display = 'none';
     if (userControlsRoot) userControlsRoot.style.display = 'flex';
-    if (colorTool.transparentBackgroundCheckbox) {
-      try { colorTool.transparentBackgroundCheckbox.checked(false); } catch { /* ignore */ }
-    }
+    setTransparentBackgroundEnabled(false);
     if (colorTool.particleBaseHSB) {
       applyBackgroundHSB(computeHighContrastBackgroundHSB(colorTool.particleBaseHSB), false);
     }
-    if (activeUserStageIndex < 0) selectUserStage(0);
-    else selectUserStage(activeUserStageIndex);
+    const t = userStageSlider ? parseFloat(userStageSlider.value) || 0 : 0;
+    applyUserStageAt(t);
     requestAnimationFrame(layoutUserControlsWidth);
   } else {
     _userStageTarget = null;
     userStageTransitionActive = false;
     userStageParticleSyncPending = false;
     userStageFadePhase = null;
+    userStageSliderDragging = false;
     if (userControlsRoot) userControlsRoot.style.display = 'none';
     if (timelineRoot) timelineRoot.style.display = '';
     activeUserStageIndex = -1;
-    document.querySelectorAll('.user-stage-btn').forEach((btn) => btn.classList.remove('active'));
     if (activeValueSetIndex < 0 && uiRoot) uiRoot.style.display = 'none';
   }
 
@@ -951,11 +1049,25 @@ function beginUserStageFadePulse() {
   userStageFadePhase = 'up';
   userStageFadeT = 0;
   userStageFadeFrom = colorTool?.trailFadeSlider
-    ? parseFloat(colorTool.trailFadeSlider.value()) || USER_STAGE_BASE.fade
-    : USER_STAGE_BASE.fade;
+    ? parseFloat(colorTool.trailFadeSlider.value()) || userStageFadeTarget
+    : userStageFadeTarget;
 }
 
-/** Ease fade up to 70, then down to target; returns true while the pulse is running. */
+function beginUserStageFadeEaseDown() {
+  if (!colorTool?.trailFadeSlider) return;
+  const cur = parseFloat(colorTool.trailFadeSlider.value()) || userStageFadeTarget;
+  const endFade = userStageFadeTarget ?? USER_STAGE_BASE.fade;
+  if (cur <= endFade + 0.5) {
+    userStageFadePhase = null;
+    setSliderValue(colorTool.trailFadeSlider, endFade);
+    return;
+  }
+  userStageFadePhase = 'down';
+  userStageFadeT = 0;
+  userStageFadeFrom = cur;
+}
+
+/** Ease fade up to peak, then down to target; returns true while the pulse is running. */
 function stepUserStageFadePulse(targetFade) {
   if (!userStageFadePhase || !colorTool?.trailFadeSlider) return false;
 
@@ -973,7 +1085,7 @@ function stepUserStageFadePulse(targetFade) {
       v = USER_STAGE_FADE_PEAK;
     }
   } else {
-    const endFade = targetFade ?? USER_STAGE_BASE.fade;
+    const endFade = targetFade ?? userStageFadeTarget ?? USER_STAGE_BASE.fade;
     v = userStageFadeFrom + (endFade - userStageFadeFrom) * eased;
     if (userStageFadeT >= 1) {
       userStageFadePhase = null;
@@ -995,6 +1107,10 @@ function stepUserStageFadePulse(targetFade) {
 
 function timelineLoop() {
   requestAnimationFrame(timelineLoop);
+
+  if (userStageFadePhase && colorTool?.trailFadeSlider && uiMode === 'user') {
+    stepUserStageFadePulse(userStageFadeTarget);
+  }
 
   if (userStageParticleSyncPending && typeof syncParticleCountGradual === 'function') {
     try {
@@ -1049,9 +1165,6 @@ function timelineLoop() {
       }
       if (colorTool.particleSpeedSlider && activeTarget.speed !== undefined) {
         setLerp(colorTool.particleSpeedSlider, activeTarget.speed);
-      }
-      if (colorTool.zoomSlider && activeTarget.zoom !== undefined) {
-        setLerp(colorTool.zoomSlider, activeTarget.zoom);
       }
     } else {
       setLerp(colorTool.gravitationSlider, activeTarget.grav);

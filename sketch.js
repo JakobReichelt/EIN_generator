@@ -45,6 +45,22 @@ function setup() {
   initUserStageUI();
   initModeToggle();
   setUiMode(loadUiMode() || 'dev');
+  initWheelZoom();
+}
+
+function initWheelZoom() {
+  const el = mainCanvas?.elt;
+  if (!el || el.dataset.wheelZoom === '1') return;
+  el.dataset.wheelZoom = '1';
+  el.addEventListener('wheel', (e) => {
+    if (typeof isEditingTextInput === 'function' && isEditingTextInput()) return;
+    if (!camera) return;
+    const delta = e.deltaY;
+    if (!delta) return;
+    e.preventDefault();
+    setCameraZoom(camera.zoom - delta * 0.003);
+    if (typeof noteManualZoomChange === 'function') noteManualZoomChange();
+  }, { passive: false });
 }
 
 function initCamera() {
@@ -167,18 +183,6 @@ function mousePressed() {
     const maxImpulses = Math.max(1, (CONFIG?.interaction?.maxImpulses ?? 10) | 0);
     if (interactionImpulses.length > maxImpulses) interactionImpulses.splice(0, interactionImpulses.length - maxImpulses);
   } catch { /* ignore */ }
-}
-
-function mouseWheel(event) {
-  if (typeof isPointerOverUI === 'function' && isPointerOverUI()) return;
-  if (typeof isEditingTextInput === 'function' && isEditingTextInput()) return;
-  if (!camera) return;
-
-  const delta = event?.delta ?? event?.deltaY ?? 0;
-  if (!delta) return;
-
-  setCameraZoom((camera.zoom || 1) * Math.exp(-delta * 0.001));
-  return false;
 }
 
 function pruneInteractionImpulses(nowMs) {

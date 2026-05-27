@@ -87,7 +87,7 @@ class Particle {
       const palette = (typeof colorTool !== 'undefined' && colorTool && Array.isArray(colorTool.particlePaletteHSB)) ? colorTool.particlePaletteHSB : null;
       if (!palette) { this.paletteSlot = -1; return; }
       const active = [];
-      for (let i = 0; i < Math.min(3, palette.length); i++) if (palette[i]) active.push(i);
+      for (let i = 0; i < palette.length; i++) if (palette[i]) active.push(i);
       if (active.length === 0) { this.paletteSlot = -1; return; }
       this.paletteSlot = active[(random(active.length)) | 0];
     } catch {
@@ -135,7 +135,7 @@ class Particle {
       const palette = (typeof colorTool !== 'undefined' && colorTool && Array.isArray(colorTool.particlePaletteHSB)) ? colorTool.particlePaletteHSB : null;
       if (palette) {
         if (this.paletteSlot >= 0 && this.paletteSlot < palette.length) selected = palette[this.paletteSlot] ?? null;
-        if (!selected) for (let i = 0; i < Math.min(3, palette.length); i++) if (palette[i]) { selected = palette[i]; break; }
+        if (!selected) for (let i = 0; i < palette.length; i++) if (palette[i]) { selected = palette[i]; break; }
       }
     } catch { selected = null; }
 

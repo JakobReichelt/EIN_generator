@@ -118,28 +118,6 @@ function oklabAnchorFromRgb(r, g, b, minChroma = 0.04) {
   return { L: lab.L, C: C < 0.008 ? minChroma : C };
 }
 
-/** Vivid fixed anchor for user hue strip (~legacy HSB S/B 100, uniform Oklab lightness). */
-function getUserHueStripOklabTarget() {
-  let sumL = 0, n = 0, maxC = 0;
-  for (let h = 0; h < 360; h += 30) {
-    const rgb = hsbToRgb(h, 100, 100);
-    const lab = rgbToOklab(rgb.r, rgb.g, rgb.b);
-    sumL += lab.L;
-    n++;
-    maxC = Math.max(maxC, oklabChroma(lab.a, lab.b));
-  }
-  const meanL = sumL / (n || 1);
-  return { L: Math.min(0.9, meanL + 0.15), C: Math.min(0.4, maxC * 1.1) };
-}
-
-/** Push user strip picks to full HSB brightness while keeping the Oklab hue. */
-function boostUserStripHsb(hsb) {
-  const hh = ((+hsb.h || 0) + 360) % 360;
-  const ss = Math.min(100, Math.max(+hsb.s || 0, 98));
-  const bb = 100;
-  return { h: hh, s: ss, b: bb };
-}
-
 function normalizeHexColor(hex) {
   if (typeof hex !== 'string') return null;
   const m = /^#([0-9a-f]{6})$/i.exec(hex.trim());
