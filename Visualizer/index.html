@@ -3,23 +3,18 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Europe Flow Field (p5.js)</title>
+    <title>Particle Visualizer (p5.js)</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400&display=swap" rel="stylesheet" />
     <style>
-      :root {
-        /* Keep form controls and scrollbars readable in dark contexts. */
-        color-scheme: dark;
-      }
-
-      html,
-      body {
+      :root { color-scheme: light; }
+      html, body {
         margin: 0;
         padding: 0;
         width: 100%;
         height: 100%;
-        background: #0b0f14;
+        background: #f2f2f2;
         overflow: hidden;
         display: flex;
         align-items: center;
@@ -28,191 +23,72 @@
       }
       canvas {
         display: block;
+        position: relative;
+        z-index: 1;
       }
-
-      /* High-contrast overlay panel used for all UI elements. */
       .ui-panel {
-        background: rgba(0, 0, 0, 0.55);
-        color: #fff;
-        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(255, 255, 255, 0.92);
+        color: #111;
+        border: 1px solid rgba(0, 0, 0, 0.12);
         border-radius: 12px;
         padding: 12px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
       }
-
-      .ui-panel a {
-        color: inherit;
-      }
-
-      .ui-panel input,
-      .ui-panel button,
-      .ui-panel select {
-        font: inherit;
-      }
-
       .ui-root {
         position: fixed;
         left: 12px;
         top: 12px;
-        z-index: 10;
-        max-width: 260px;
+        z-index: 100;
+        width: 240px;
+        max-height: calc(100vh - 24px);
+        overflow: auto;
+        pointer-events: auto;
       }
-
       .ui-section {
         padding-top: 10px;
         margin-top: 10px;
-        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        border-top: 1px solid rgba(0, 0, 0, 0.08);
       }
-
-      .ui-section:first-child {
-        padding-top: 0;
-        margin-top: 0;
-        border-top: none;
-      }
-
+      .ui-section:first-child { padding-top: 0; margin-top: 0; border-top: none; }
       .ui-section-title {
         font-size: 11px;
         letter-spacing: 0.06em;
         text-transform: uppercase;
-        opacity: 0.85;
+        opacity: 0.7;
         margin-bottom: 8px;
       }
-
       .ui-row {
         display: flex;
         align-items: center;
         gap: 8px;
         flex-wrap: wrap;
       }
-
-      .ui-row + .ui-row {
-        margin-top: 6px;
-      }
-
-      .ui-hex {
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-        font-size: 11px;
-        opacity: 0.9;
-      }
-
-      .ui-panel input.ui-hex {
-        width: 7.25em;
-        max-width: 100%;
-        margin: 0;
-        padding: 2px 6px;
-        border-radius: 6px;
-        border: 1px solid rgba(255, 255, 255, 0.22);
-        background: rgba(0, 0, 0, 0.35);
-        color: inherit;
-        opacity: 1;
-        user-select: text;
-      }
-
-      .ui-panel input.ui-hex:focus {
-        outline: none;
-        border-color: rgba(255, 255, 255, 0.45);
-        background: rgba(0, 0, 0, 0.5);
-      }
-
-      .ui-swatch {
-        width: 18px;
-        height: 18px;
-        padding: 0;
-        border-radius: 6px;
-        border: 1px solid rgba(255, 255, 255, 0.22);
-        outline: none;
-        background: transparent;
+      .ui-row + .ui-row { margin-top: 6px; }
+      .ui-panel button {
+        font: inherit;
+        padding: 6px 10px;
+        border-radius: 8px;
+        border: 1px solid rgba(0, 0, 0, 0.15);
+        background: #fff;
         cursor: pointer;
       }
-
-      .ui-swatch.is-selected {
-        outline: 2px solid rgba(255, 255, 255, 0.9);
-        outline-offset: 1px;
+      .ui-panel button.is-active {
+        background: #111;
+        color: #fff;
+        border-color: #111;
       }
-
-      .ui-swatch-grid {
-        display: grid;
-        grid-template-columns: repeat(6, 18px);
-        gap: 6px;
-        margin-top: 6px;
-        max-width: 100%;
+      .ui-panel button:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
       }
-
-      .ui-preview {
-        width: 14px;
-        height: 14px;
-        border-radius: 4px;
-        border: 1px solid rgba(255, 255, 255, 0.22);
-      }
-
-      .ui-panel input[type='range'] {
-        width: 160px;
-      }
-
-      .ui-panel input[type='color'] {
-        border: 1px solid rgba(255, 255, 255, 0.22);
+      .viz-count-input {
+        width: 72px;
+        font: inherit;
+        padding: 4px 6px;
         border-radius: 6px;
-        padding: 0;
-        background: transparent;
-        vertical-align: middle;
+        border: 1px solid rgba(0, 0, 0, 0.15);
+        pointer-events: auto;
       }
-
-      .ui-panel input[type='range'] {
-        vertical-align: middle;
-      }
-
-      .ui-shortcuts {
-        opacity: 0.85;
-        font-size: 11px;
-      }
-
-      .timeline-container {
-        position: fixed;
-        bottom: 60px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 60%;
-        max-width: 800px;
-        height: 24px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        z-index: 20;
-      }
-
-      .timeline-line {
-        position: absolute;
-        top: 50%;
-        left: 20px;
-        right: 20px;
-        height: 2px;
-        background: rgba(255, 255, 255, 0.3);
-        transform: translateY(-50%);
-        z-index: 1;
-      }
-
-      .timeline-dot {
-        position: relative;
-        width: 20px;
-        height: 20px;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.5);
-        border: 2px solid transparent;
-        outline: 1px solid black;
-        cursor: pointer;
-        z-index: 2;
-        transition: all 0.2s;
-      }
-
-      .timeline-dot:hover {
-        background: #fff;
-      }
-
-      .timeline-dot.active {
-        background: #fff;
-        transform: scale(1.4);
-        box-shadow: 0 0 12px rgba(255, 255, 255, 0.7);
-      }
-
       .user-controls-root {
         position: fixed;
         bottom: 60px;
@@ -222,10 +98,11 @@
         flex-direction: column;
         align-items: stretch;
         gap: 10px;
-        z-index: 20;
+        z-index: 100;
+        min-width: 320px;
         width: max-content;
+        pointer-events: auto;
       }
-
       #user-color-root,
       #user-color-root .user-color-inner {
         background: transparent !important;
@@ -233,7 +110,6 @@
         box-shadow: none !important;
         padding: 0 !important;
       }
-
       #user-color-root input.ui-hex {
         font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
         font-size: 14px;
@@ -247,16 +123,11 @@
         text-align: center;
         user-select: text;
       }
-
       #user-color-root .user-color-hex-row {
         gap: 10px;
         flex-wrap: nowrap;
       }
-
-      .user-color-root {
-        width: 100%;
-      }
-
+      .user-color-root { width: 100%; }
       .user-color-preset-row {
         display: flex;
         gap: 6px;
@@ -265,7 +136,6 @@
         width: 100%;
         margin-bottom: 0;
       }
-
       .user-color-controls-row {
         display: flex;
         align-items: center;
@@ -273,7 +143,6 @@
         width: 100%;
         margin-bottom: 6px;
       }
-
       .user-transparent-bg-toggle {
         flex-shrink: 0;
         width: 28px;
@@ -293,16 +162,6 @@
         background-position: 0 0, 0 4px, 4px -4px, -4px 0;
         outline: none;
       }
-
-      .user-transparent-bg-toggle:hover {
-        border-color: rgba(0, 0, 0, 0.8);
-      }
-
-      .user-transparent-bg-toggle:focus-visible {
-        outline: 2px solid rgba(0, 0, 0, 0.75);
-        outline-offset: 2px;
-      }
-
       .user-transparent-bg-check {
         position: absolute;
         left: 7px;
@@ -315,11 +174,7 @@
         opacity: 0;
         pointer-events: none;
       }
-
-      .user-transparent-bg-toggle.is-active .user-transparent-bg-check {
-        opacity: 1;
-      }
-
+      .user-transparent-bg-toggle.is-active .user-transparent-bg-check { opacity: 1; }
       .user-color-preset {
         flex: 1;
         height: 22px;
@@ -330,12 +185,10 @@
         cursor: pointer;
         outline: 1px solid rgba(0, 0, 0, 0.35);
       }
-
       .user-color-preset.is-active {
-        outline: 2px solid rgba(255, 255, 255, 0.9);
+        outline: 2px solid rgba(0, 0, 0, 0.75);
         outline-offset: 1px;
       }
-
       .user-stage-root {
         display: flex;
         align-items: center;
@@ -343,14 +196,18 @@
         align-self: stretch;
         width: 100%;
       }
-
       .user-stage-wrap {
         display: flex;
         align-items: center;
         width: 100%;
+        min-width: 280px;
         padding: 10px 0;
+        pointer-events: auto;
       }
-
+      .user-stage-slider {
+        pointer-events: auto;
+        touch-action: pan-x;
+      }
       .user-stage-slider {
         -webkit-appearance: none;
         appearance: none;
@@ -364,18 +221,13 @@
         background: transparent;
         cursor: pointer;
       }
-
-      .user-stage-slider:focus {
-        outline: none;
-      }
-
+      .user-stage-slider:focus { outline: none; }
       .user-stage-slider::-webkit-slider-runnable-track {
         height: 1px;
         background: #000;
         border: none;
         border-radius: 0;
       }
-
       .user-stage-slider::-webkit-slider-thumb {
         -webkit-appearance: none;
         appearance: none;
@@ -385,78 +237,78 @@
         border: none;
         border-radius: 50%;
         background: #fff;
+        box-shadow: 0 0 0 1px #000;
         cursor: pointer;
       }
-
       .user-stage-slider::-moz-range-track {
         height: 1px;
         background: #000;
         border: none;
         border-radius: 0;
       }
-
       .user-stage-slider::-moz-range-thumb {
         width: 10px;
         height: 10px;
         border: none;
         border-radius: 50%;
         background: #fff;
+        box-shadow: 0 0 0 1px #000;
         cursor: pointer;
       }
-
-      .mode-toggle-root {
+      .record-indicator {
         position: fixed;
-        right: 12px;
-        bottom: 12px;
-        z-index: 25;
-      }
-
-      .mode-switch {
-        display: flex;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 35;
+        display: none;
         align-items: center;
-        gap: 0;
-        padding: 3px;
-        border-radius: 999px;
-        background: rgba(0, 0, 0, 0.55);
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        color: #fff;
-        font: inherit;
-        font-size: 11px;
+        gap: 8px;
+        padding: 8px 14px;
+        font-size: 12px;
         user-select: none;
+        pointer-events: none;
       }
-
-      .mode-switch-btn {
-        padding: 6px 12px;
-        border: none;
-        border-radius: 999px;
-        background: transparent;
-        color: inherit;
-        font: inherit;
-        cursor: pointer;
-        opacity: 0.7;
+      .record-indicator.is-visible { display: flex; }
+      .record-indicator-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #e53935;
+        animation: record-pulse 1.2s ease-in-out infinite;
       }
-
-      .mode-switch-btn.is-active {
-        background: rgba(255, 255, 255, 0.92);
-        color: #111;
-        opacity: 1;
+      .record-indicator.is-encoding .record-indicator-dot {
+        animation: none;
+        background: rgba(255, 255, 255, 0.5);
+      }
+      @keyframes record-pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.35; }
       }
     </style>
   </head>
   <body>
-    <div id="ui-root" class="ui-root" aria-label="Sketch controls" style="display: none;"></div>
-    <div id="timeline-root" class="timeline-container"></div>
+    <div id="viz-ui-root" class="ui-root ui-panel" aria-label="Visualizer controls"></div>
+    <div id="ui-root" class="ui-root" aria-label="Dev controls" style="display: none;"></div>
+    <div id="timeline-root" class="timeline-container" style="display: none;"></div>
     <div id="user-controls-root" class="user-controls-root" aria-label="User controls">
       <div id="user-color-root" class="user-color-root" aria-label="Particle and background color"></div>
       <div id="user-stage-root" class="user-stage-root" aria-label="Stage presets"></div>
     </div>
-    <div id="mode-toggle-root" class="mode-toggle-root" aria-label="UI mode"></div>
+    <div id="record-indicator" class="record-indicator ui-panel" aria-live="polite" aria-hidden="true">
+      <span class="record-indicator-dot" aria-hidden="true"></span>
+      <span id="record-indicator-text">REC</span>
+    </div>
     <script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
+    <script type="module" src="mediabunny-shim.mjs"></script>
+    <script src="../Generator/utils.js"></script>
+    <script src="../Generator/map.js"></script>
     <script src="config.js"></script>
-    <script src="utils.js"></script>
-    <script src="map.js"></script>
+    <script src="clusters.js"></script>
+    <script src="../Generator/ui.js"></script>
     <script src="particle.js"></script>
     <script src="ui.js"></script>
+    <script src="recorder.js"></script>
     <script src="sketch.js"></script>
   </body>
 </html>

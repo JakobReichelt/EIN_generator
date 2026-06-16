@@ -106,7 +106,8 @@ function resetSketch() {
 
 function draw() {
   if (typeof interactionEnabled !== 'undefined' && interactionEnabled) {
-    pruneInteractionImpulses(millis());
+    const tNow = typeof sketchClockMs === 'function' ? sketchClockMs() : millis();
+    pruneInteractionImpulses(tNow);
   }
 
   noStroke();
@@ -215,5 +216,8 @@ function keyPressed() {
     const dateStr = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
     const timeStr = String(now.getHours()).padStart(2, '0') + '-' + String(now.getMinutes()).padStart(2, '0') + '-' + String(now.getSeconds()).padStart(2, '0');
     saveCanvas('europe-flowfield_' + dateStr + '_' + timeStr, 'png');
+  }
+  else if ((key === 'v' || key === 'V') && typeof isEditingTextInput === 'function' && !isEditingTextInput()) {
+    if (typeof toggleVideoRecording === 'function') toggleVideoRecording();
   }
 }

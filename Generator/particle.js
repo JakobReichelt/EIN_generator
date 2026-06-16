@@ -107,7 +107,8 @@ class Particle {
 
   step() {
     this.prev.set(this.pos);
-    const v = flowVector(this.pos.x, this.pos.y, millis(), this.biasAngle);
+    const tNow = typeof sketchClockMs === 'function' ? sketchClockMs() : millis();
+    const v = flowVector(this.pos.x, this.pos.y, tNow, this.biasAngle);
 
     if (attractor) {
       const pull = sampleAttractor(attractor, this.pos.x, this.pos.y);
@@ -122,7 +123,7 @@ class Particle {
       }
     }
 
-    addInteractionForce(v, this.pos.x, this.pos.y, millis());
+    addInteractionForce(v, this.pos.x, this.pos.y, tNow);
 
     this.vel.lerp(v, 0.22);
     this.pos.add(this.vel.copy().mult(getParticleSpeed())).add(random(-1, 1) * CONFIG.particles.jitter, random(-1, 1) * CONFIG.particles.jitter);

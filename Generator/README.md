@@ -8,6 +8,7 @@ Open `index.html` in a local web server (recommended).
 - `R` reseed + restart
 - `SPACE` toggle stacking (particle separation)
 - `S` save a PNG frame
+- `V` start/stop video recording (exports MP4 at 1920×1080, 30 fps; falls back to WebM if H.264 is unavailable)
 - Interactive mode (UI toggle): when enabled, left-click pushes particles away for ~2 seconds
 - Click to zoom in on a spot
 - Mouse wheel / trackpad scroll to zoom further (zoom around cursor)
