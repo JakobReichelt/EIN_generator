@@ -1,5 +1,3 @@
-let _timelineCleanup = null;
-
 registerStage({
   id: 'question4Timeline',
   title: 'Question 4 — Timeline',
@@ -8,29 +6,100 @@ registerStage({
   onExit() {},
 
   mount(container, ctx) {
-    const { body } = stageShell(container, 'Question 4', 'Place a marker on the timeline — content coming soon.');
-    placeholderText(body, 'Drag the marker to your answer position.');
+    const { screen } = mountFigmaStage(container);
+    addPauseButton(screen, ctx);
 
-    const { bar, marker } = timelineBar(body);
-    const existing = ctx.quizState.answers.q4Timeline;
-    if (existing != null) {
-      marker.style.left = `${existing * 100}%`;
-      bar.setAttribute('aria-valuenow', String(Math.round(existing * 100)));
+    const topicColors = getQuizColorScheme(ctx.quizState.topic);
+    const particleColor = topicColors.user;
+    const correctT = quizTimeline.getCorrectTimelineT();
+
+    let placedT = ctx.quizState.answers.q4Timeline;
+    let transitioning = false;
+
+    function showConfirm() {
+      if (!window.confirmParticle) return;
+      confirmParticle.show({
+        onClick: () => {
+          if (placedT == null || transitioning) return;
+          playTransition();
+        },
+        label: 'Antwort bestätigen'
+      });
     }
 
-    _timelineCleanup = wireTimelineDrag(bar, marker, (t) => {
-      ctx.setAnswer('q4Timeline', t);
-    });
+    const timelineWrap = buildTimeline(screen);
+    if (window.stageTransitions) {
+      markStageExempt(timelineWrap);
+    }
 
-    const actions = row(body);
-    actions.className = 'ui-row quiz-actions';
-    button(actions, 'Submit', () => ctx.goNext());
+    const timeline = quizTimeline.createQuizTimeline(screen, {
+      onPlace(t, normX, normY) {
+        if (transitioning) return;
+        placedT = t;
+        ctx.setAnswer('q4Timeline', t);
+        timeline.setUserPoint(t, particleColor, { normX, normY, snapToLine: true });
+        showConfirm();
+      }
+    });
+    timeline.setTimelineWrap(timelineWrap);
+    screen._timelineController = timeline;
+
+    const header = addQuestionHeader(screen, 'Frage 4 von 4', 'Wann wurde die EU gegründet?');
+    const instruction = addInstruction(screen, 'platziere deinen Punkt in der Nähe der Zeitachse');
+    instruction.style.top = '11.76%';
+
+    if (placedT != null) {
+      timeline.setUserPoint(placedT, particleColor, { snapToLine: false, spawnAnimation: false });
+      showConfirm();
+    }
+
+    async function playTransition() {
+      transitioning = true;
+      const exitMs = window.stageTransitions?.STAGE_EXIT_MS ?? 400;
+      const isCorrect = timeline.checkPlacementCorrect(placedT);
+
+      markStageExempt(timeline.placementZone);
+      if (window.stageTransitions) {
+        stageTransitions.revealStageElement(timeline.placementZone);
+      }
+
+      const fadeTargets = [header, instruction];
+      for (const el of fadeTargets) {
+        el.style.transition = `opacity ${exitMs}ms ease`;
+        el.style.opacity = '0';
+      }
+
+      const confirmPromise = window.confirmParticle
+        ? confirmParticle.fadeOut(exitMs)
+        : Promise.resolve();
+
+      await confirmPromise;
+
+      timeline.setInteractive(false);
+      if (isCorrect) {
+        timeline.clearUserMarker();
+      }
+      timeline.setCorrectPoint(correctT, topicColors.correct, { spawnAnimation: false });
+
+      quizTimeline.setTimelineHandoff({
+        userT: placedT,
+        correctT,
+        isCorrect,
+        topicId: ctx.quizState.topic
+      });
+
+      quizTimeline.retainQuizTimeline(timeline);
+      ctx.goNext({ skipExitTransition: true });
+    }
   },
 
-  unmount() {
-    if (_timelineCleanup) {
-      _timelineCleanup();
-      _timelineCleanup = null;
+  unmount(container) {
+    const screen = container.querySelector('.figma-screen');
+    const timeline = screen?._timelineController;
+    if (timeline && !quizTimeline.isQuizTimelineRetained()) {
+      timeline.destroy();
     }
+    if (screen) screen._timelineController = null;
+    unmountFigmaStage(container);
   }
 });

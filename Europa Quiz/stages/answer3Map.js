@@ -1,3 +1,6 @@
+const MAP_ANSWER_EXPLANATION =
+  'Der Papst wohnt im Vatikan, ein eigener Staat in der Italienischen Hauptstadt.';
+
 registerStage({
   id: 'answer3Map',
   title: 'Answer 3 — Map',
@@ -6,37 +9,89 @@ registerStage({
   onExit() {},
 
   mount(container, ctx) {
-    const { body } = stageShell(container, 'Answer 3', 'Your selection vs correct position on the map.');
-    const map = mapContainer(body);
+    const { screen } = mountFigmaStage(container);
+    addPauseButton(screen, ctx);
 
-    const userPoint = ctx.quizState.answers.q3MapPoint;
-    const correctPoint = { x: 0.5, y: 0.5 };
+    const handoff = europeMap.consumeMapHandoff();
+    const userPoint = handoff?.userPoint ?? ctx.quizState.answers.q3MapPoint;
+    const correctPoint = handoff?.correctPoint ?? europeMap.getCorrectMapPoint();
+    const isCorrect = handoff?.isCorrect ?? europeMap.isMapAnswerCorrect(userPoint);
 
-    if (userPoint) {
-      const userMarker = document.createElement('div');
-      userMarker.className = 'quiz-map-marker quiz-map-marker-user';
-      userMarker.style.left = `${userPoint.x * 100}%`;
-      userMarker.style.top = `${userPoint.y * 100}%`;
-      userMarker.title = 'Your answer';
-      map.appendChild(userMarker);
+    const topicColors = getQuizColorScheme(ctx.quizState.topic);
+    const userColor = topicColors.user;
+    const noSpawn = { spawnAnimation: false };
+
+    let map = europeMap.adoptEuropeMap(screen, { topicId: handoff?.topicId ?? ctx.quizState.topic });
+    const adopted = !!map;
+
+    if (!map) {
+      map = europeMap.createEuropeMap(screen, {
+        topicId: handoff?.topicId ?? ctx.quizState.topic,
+        viewport: handoff?.viewport,
+        interactive: false
+      });
+    } else {
+      map.setInteractive(false);
+    }
+    screen._mapController = map;
+
+    if (!adopted) {
+      map.clearUserMarker();
+      map.setCorrectPoint(correctPoint, topicColors.correct, noSpawn);
+      if (!isCorrect && userPoint) {
+        map.setUserPoint(userPoint, userColor, noSpawn);
+      }
+    } else if (isCorrect) {
+      map.clearUserMarker();
     }
 
-    const correctMarker = document.createElement('div');
-    correctMarker.className = 'quiz-map-marker quiz-map-marker-correct';
-    correctMarker.style.left = `${correctPoint.x * 100}%`;
-    correctMarker.style.top = `${correctPoint.y * 100}%`;
-    correctMarker.title = 'Correct answer';
-    map.appendChild(correctMarker);
+    markStageExempt(map.viewport);
+    if (window.stageTransitions) {
+      stageTransitions.revealStageElement(map.viewport);
+    }
 
-    const legend = row(body);
-    legend.className = 'ui-row quiz-legend';
-    label(legend, '● Your answer');
-    label(legend, '● Correct answer');
+    const resultHtml = isCorrect
+      ? 'deine Antwort war<br>richtig!'
+      : 'deine Antwort war<br>leider falsch.';
 
-    const actions = row(body);
-    actions.className = 'ui-row quiz-actions';
-    button(actions, 'Continue', () => ctx.goNext());
+    const header = addAnswerHeader(screen, 'Wo wohnt der Papst?', resultHtml);
+
+    const explanation = map.world.querySelector('.figma-map-explanation')
+      || map.addExplanation(correctPoint, MAP_ANSWER_EXPLANATION);
+
+    if (!adopted) {
+      requestAnimationFrame(() => {
+        if (isCorrect) {
+          map.animateToFitCenter(correctPoint, 0.14, 0);
+        } else if (userPoint) {
+          map.fitToContent(
+            europeMap.getMapFitPoints(userPoint, correctPoint),
+            0.1,
+            { screen }
+          );
+        }
+      });
+    }
+
+    if (window.stageTransitions) {
+      stageTransitions.revealStageElement(header);
+      stageTransitions.revealStageElement(explanation);
+    }
+
+    addConfirmParticle(() => ctx.goNext(), { delayMs: 2000 });
   },
 
-  unmount() {}
+  enterAnimation: {
+    skipTiers: ['heading', 'content', 'interactive']
+  },
+
+  unmount(container) {
+    const screen = container.querySelector('.figma-screen');
+    const map = screen?._mapController;
+    if (map && !europeMap.isEuropeMapRetained()) {
+      map.destroy();
+    }
+    if (screen) screen._mapController = null;
+    unmountFigmaStage(container);
+  }
 });

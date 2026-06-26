@@ -1,6 +1,6 @@
 const quizState = {
   mode: null,
-  particleId: null,
+  particleId: 'builtin-emerald',
   topic: null,
   difficulty: null,
   answers: {
@@ -36,9 +36,7 @@ function setAnswer(key, value) {
   quizState.answers[key] = value;
 }
 
-function resetQuizState() {
-  quizState.mode = null;
-  quizState.particleId = null;
+function resetQuizRound() {
   quizState.topic = null;
   quizState.difficulty = null;
   quizState.answers = {
@@ -47,4 +45,10 @@ function resetQuizState() {
     q3MapPoint: null,
     q4Timeline: null
   };
+}
+
+function resetQuizState() {
+  quizState.mode = null;
+  quizState.particleId = 'builtin-emerald';
+  resetQuizRound();
 }

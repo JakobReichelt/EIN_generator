@@ -4,9 +4,8 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Europa Quiz</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="fonts.css" />
+    <link rel="stylesheet" href="figma.css" />
     <style>
       :root { color-scheme: light; }
       html, body {
@@ -19,7 +18,10 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        font: 12px/1.35 'Hanken Grotesk', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        font-family: var(--font-gotham);
+        font-weight: 400;
+        font-size: 12px;
+        line-height: 1.35;
       }
       canvas {
         display: block;
@@ -33,6 +35,7 @@
         border-radius: 12px;
         padding: 12px;
         box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+        font-family: var(--font-gotham);
       }
       .ui-section {
         padding-top: 10px;
@@ -79,154 +82,14 @@
         padding: 24px;
         box-sizing: border-box;
       }
-      .quiz-stage-shell {
-        pointer-events: auto;
-        max-width: min(720px, 100%);
-        width: 100%;
-        padding: 24px 28px;
-      }
-      .quiz-stage-title {
-        margin: 0 0 8px;
-        font-size: 28px;
-        font-weight: 600;
-        line-height: 1.15;
-      }
-      .quiz-stage-subtitle {
-        margin: 0 0 16px;
-        font-size: 14px;
-        opacity: 0.75;
-      }
-      .quiz-stage-body {
-        margin-top: 8px;
-      }
-      .quiz-placeholder {
-        margin: 0 0 12px;
-        opacity: 0.65;
-        font-size: 13px;
-      }
-      .quiz-actions {
-        margin-top: 16px;
-      }
-      .quiz-input-row {
-        margin-top: 8px;
-      }
-      .quiz-number-input {
-        font: inherit;
-        font-size: 14px;
-        padding: 8px 10px;
-        border-radius: 8px;
-        border: 1px solid rgba(0, 0, 0, 0.15);
-        min-width: 160px;
-      }
-      .quiz-choices {
-        margin-top: 8px;
-      }
-      .quiz-particle-grid {
-        min-height: 120px;
-        border: 1px dashed rgba(0, 0, 0, 0.2);
-        border-radius: 8px;
-        padding: 16px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin-bottom: 8px;
-      }
-      .quiz-readout-row {
-        display: flex;
-        gap: 12px;
-        flex-wrap: wrap;
-        margin: 12px 0;
-      }
-      .quiz-readout {
-        flex: 1;
-        min-width: 140px;
-        padding: 12px;
-        border-radius: 8px;
-        border: 1px solid rgba(0, 0, 0, 0.1);
-        background: rgba(0, 0, 0, 0.02);
-      }
-      .quiz-readout-label {
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-        opacity: 0.65;
-        margin-bottom: 6px;
-      }
-      .quiz-readout-value {
-        font-size: 18px;
-        font-weight: 600;
-      }
-      .quiz-map-container {
-        position: relative;
-        width: 100%;
-        aspect-ratio: 16 / 9;
-        max-height: 280px;
-        border: 1px solid rgba(0, 0, 0, 0.15);
-        border-radius: 8px;
-        background: rgba(0, 0, 0, 0.04);
-        cursor: crosshair;
-        margin: 12px 0;
-      }
-      .quiz-map-marker {
-        position: absolute;
-        width: 14px;
-        height: 14px;
-        border-radius: 50%;
-        transform: translate(-50%, -50%);
-        pointer-events: none;
-      }
-      .quiz-map-marker-user {
-        background: #1565c0;
-        box-shadow: 0 0 0 2px #fff, 0 0 0 3px #1565c0;
-      }
-      .quiz-map-marker-correct {
-        background: #2e7d32;
-        box-shadow: 0 0 0 2px #fff, 0 0 0 3px #2e7d32;
-      }
-      .quiz-legend {
-        font-size: 12px;
-        opacity: 0.8;
-        gap: 16px;
-      }
-      .quiz-timeline-wrap {
-        margin: 16px 0;
-        padding: 8px 0;
-      }
-      .quiz-timeline-bar {
-        position: relative;
-        height: 8px;
-        border-radius: 4px;
-        background: rgba(0, 0, 0, 0.12);
-        cursor: pointer;
-        touch-action: none;
-      }
-      .quiz-timeline-marker {
-        position: absolute;
-        top: 50%;
-        width: 16px;
-        height: 16px;
-        border-radius: 50%;
-        transform: translate(-50%, -50%);
-        background: #1565c0;
-        box-shadow: 0 0 0 2px #fff, 0 0 0 3px #1565c0;
-        pointer-events: none;
-      }
-      .quiz-timeline-marker-user {
-        background: #1565c0;
-        box-shadow: 0 0 0 2px #fff, 0 0 0 3px #1565c0;
-      }
-      .quiz-timeline-marker-correct {
-        background: #2e7d32;
-        box-shadow: 0 0 0 2px #fff, 0 0 0 3px #2e7d32;
-        top: calc(50% + 20px);
-      }
       #dev-nav {
         position: fixed;
-        right: 12px;
-        top: 12px;
+        left: 12px;
+        bottom: 12px;
         z-index: 120;
         width: 220px;
         pointer-events: auto;
+        font-family: var(--font-gotham);
       }
       .dev-nav-title {
         font-size: 11px;
@@ -252,14 +115,29 @@
 
     <script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
     <script src="config.js"></script>
+    <script src="particlePalette.js"></script>
     <script src="quizState.js"></script>
+    <script src="scoring.js"></script>
+    <script src="particles.js"></script>
     <script src="ui.js"></script>
+    <script src="quizParticleRegion.js"></script>
+    <script src="particleInteraction.js"></script>
+    <script src="particleField.js"></script>
+    <script src="figmaUi.js"></script>
+    <script src="stageTransitions.js"></script>
+    <script src="europeMap.js"></script>
+    <script src="quizTimeline.js"></script>
+    <script src="topParticleLine.js"></script>
+    <script src="pauseParticle.js"></script>
+    <script src="confirmParticle.js"></script>
     <script src="stageManager.js"></script>
     <script src="stages/idle.js"></script>
     <script src="stages/playerCount.js"></script>
     <script src="stages/particleSelection.js"></script>
+    <script src="stages/particleCreation.js"></script>
     <script src="stages/topicSelection.js"></script>
     <script src="stages/difficulty.js"></script>
+    <script src="stages/ready.js"></script>
     <script src="stages/question1.js"></script>
     <script src="stages/answer1.js"></script>
     <script src="stages/question2.js"></script>
@@ -268,6 +146,8 @@
     <script src="stages/answer3Map.js"></script>
     <script src="stages/question4Timeline.js"></script>
     <script src="stages/answer4Timeline.js"></script>
+    <script src="stages/results.js"></script>
+    <script src="stages/leaderboard.js"></script>
     <script src="sketch.js"></script>
   </body>
 </html>

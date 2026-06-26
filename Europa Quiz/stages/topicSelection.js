@@ -6,24 +6,42 @@ registerStage({
   onExit() {},
 
   mount(container, ctx) {
-    const { body } = stageShell(container, 'Choose a Topic', 'Select one of three topics or a random combined version.');
-    const actions = row(body);
-    actions.className = 'ui-row quiz-actions';
+    const { screen } = mountFigmaStage(container);
+    addPauseButton(screen, ctx);
+    addTitle(screen, 'Kategorie');
+    addSubtitle(screen, 'wähle die Kategorie der Fragen aus');
 
     const topics = [
-      { id: 'topic1', label: 'Topic 1' },
-      { id: 'topic2', label: 'Topic 2' },
-      { id: 'topic3', label: 'Topic 3' },
-      { id: 'random', label: 'Random (combined)' }
+      { id: 'topic1', label: 'Geografie und Kultur', x: 1180, y: 640, colorRole: 'topicGeography' },
+      { id: 'topic2', label: 'Politik und EU', x: 2660, y: 640, colorRole: 'topicPolitics' },
+      { id: 'topic3', label: 'Alltag und Tradition', x: 1180, y: 1520, colorRole: 'topicEveryday' },
+      { id: 'random', label: 'Zufällig', x: 2660, y: 1520, colorRole: 'topicRandom' }
     ];
 
     for (const topic of topics) {
-      button(actions, topic.label, () => {
-        ctx.setTopic(topic.id);
-        ctx.goNext();
-      });
+      addChoiceText(screen, topic.label, topic.x, topic.y);
+      const region = spawnAnchoredParticle(
+        screen,
+        topic.x,
+        topic.y,
+        CHOICE_PARTICLE_SIZE,
+        null,
+        { colorHex: getParticleRoleColor(topic.colorRole) }
+      );
+      addSelectableHitArea(
+        screen,
+        region,
+        () => {
+          ctx.setTopic(topic.id);
+          ctx.goNext();
+        },
+        topic.label,
+        { textAnchor: { x: topic.x, y: topic.y }, textHitPad: { x: 560, y: 90 } }
+      );
     }
+
+    addSelectionConfirmButton(screen);
   },
 
-  unmount() {}
+  unmount: unmountFigmaStage
 });

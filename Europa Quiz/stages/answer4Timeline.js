@@ -1,3 +1,6 @@
+const TIMELINE_ANSWER_EXPLANATION =
+  'Die Europäische Union (EU) in ihrer heutigen Form existiert seit dem 1. November 1993, als der Vertrag von Maastricht in Kraft trat.';
+
 registerStage({
   id: 'answer4Timeline',
   title: 'Answer 4 — Timeline',
@@ -6,43 +9,77 @@ registerStage({
   onExit() {},
 
   mount(container, ctx) {
-    const { body } = stageShell(container, 'Answer 4', 'Your answer vs correct time on the timeline.');
-    const { bar } = timelineBar(body);
+    const { screen } = mountFigmaStage(container);
+    addPauseButton(screen, ctx);
 
-    const userT = ctx.quizState.answers.q4Timeline;
-    const correctT = 0.5;
+    const handoff = quizTimeline.consumeTimelineHandoff();
+    const userT = handoff?.userT ?? ctx.quizState.answers.q4Timeline;
+    const correctT = handoff?.correctT ?? quizTimeline.getCorrectTimelineT();
+    const isCorrect = handoff?.isCorrect
+      ?? quizTimeline.isTimelineAnswerCorrect(userT, null);
 
-    if (userT != null) {
-      const userMarker = document.createElement('div');
-      userMarker.className = 'quiz-timeline-marker quiz-timeline-marker-user';
-      userMarker.style.left = `${userT * 100}%`;
-      userMarker.title = 'Your answer';
-      bar.appendChild(userMarker);
+    const topicColors = getQuizColorScheme(ctx.quizState.topic);
+    const userColor = topicColors.user;
+    const noSpawn = { spawnAnimation: false, snapToLine: false };
+
+    let timeline = quizTimeline.adoptQuizTimeline(screen);
+    const adopted = !!timeline;
+
+    if (!timeline) {
+      const builtWrap = buildTimeline(screen);
+      if (window.stageTransitions) {
+        markStageExempt(builtWrap);
+      }
+      timeline = quizTimeline.createQuizTimeline(screen);
+      timeline.setTimelineWrap(builtWrap);
+      timeline.setInteractive(false);
+      timeline.setCorrectPoint(correctT, topicColors.correct, noSpawn);
+      if (!isCorrect && userT != null) {
+        timeline.setUserPoint(userT, userColor, noSpawn);
+      }
+    } else {
+      timeline.setInteractive(false);
     }
 
-    const correctMarker = document.createElement('div');
-    correctMarker.className = 'quiz-timeline-marker quiz-timeline-marker-correct';
-    correctMarker.style.left = `${correctT * 100}%`;
-    correctMarker.title = 'Correct answer';
-    bar.appendChild(correctMarker);
+    screen._timelineController = timeline;
 
-    const readouts = document.createElement('div');
-    readouts.className = 'quiz-readout-row';
-    body.appendChild(readouts);
+    const timelineWrap = timeline.getTimelineWrap() || screen.querySelector('.figma-timeline');
+    if (timelineWrap && window.stageTransitions) {
+      markStageExempt(timelineWrap);
+    }
 
-    const yourVal = readoutBox(readouts, 'Your answer');
-    const correctVal = readoutBox(readouts, 'Correct answer');
-    yourVal.textContent = userT == null ? '—' : `${Math.round(userT * 100)}%`;
-    correctVal.textContent = `${Math.round(correctT * 100)}%`;
+    const yearLabel = timeline.showCorrectYearLabel(correctT);
+    const explanation = timeline.addExplanation(correctT, TIMELINE_ANSWER_EXPLANATION);
 
-    const actions = row(body);
-    actions.className = 'ui-row quiz-actions';
-    button(actions, 'Finish', () => {
-      // End of quiz flow — restart stub for dev testing.
-      resetQuizState();
-      ctx.goTo('idle');
-    });
+    const resultHtml = isCorrect
+      ? 'deine Antwort war<br>richtig!'
+      : 'deine Antwort war<br>leider falsch.';
+
+    const header = addAnswerHeader(screen, 'Wann wurde die EU gegründet?', resultHtml);
+
+    if (window.stageTransitions) {
+      if (timelineWrap) stageTransitions.revealStageElement(timelineWrap);
+      stageTransitions.revealStageElement(header);
+      if (yearLabel) stageTransitions.revealStageElement(yearLabel);
+      if (explanation) stageTransitions.revealStageElement(explanation);
+    }
+
+    addConfirmParticle(() => {
+      setTimeout(() => ctx.goTo('results'), 0);
+    }, { delayMs: 2000 });
   },
 
-  unmount() {}
+  enterAnimation: {
+    skipTiers: ['heading', 'content', 'interactive']
+  },
+
+  unmount(container) {
+    const screen = container.querySelector('.figma-screen');
+    const timeline = screen?._timelineController;
+    if (timeline && !quizTimeline.isQuizTimelineRetained()) {
+      timeline.destroy();
+    }
+    if (screen) screen._timelineController = null;
+    unmountFigmaStage(container);
+  }
 });
