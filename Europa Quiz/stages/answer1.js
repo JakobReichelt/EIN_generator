@@ -7,7 +7,7 @@ registerStage({
 
   mount(container, ctx) {
     const user = ctx.quizState.answers.q1Estimate ?? 200000000;
-    const correct = 750000000;
+    const correct = 450000000;
     const isCorrect = user === correct;
     const { screen } = mountFigmaStage(container);
     addPauseButton(screen, ctx);

@@ -2,7 +2,7 @@ const QUIZ_SCORING = {
   maxPointsPerQuestion: 25,
   maxTotalPoints: 100,
   correct: {
-    q1Estimate: 750000000,
+    q1Estimate: 450000000,
     q2Choice: 3,
     // Vatican on assets/2090778_282803-P6L1SP-801.svg (normalized 0–1 on square map)
     q3MapPoint: { x: 0.480, y: 0.810 },
