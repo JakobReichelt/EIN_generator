@@ -101,7 +101,7 @@ class Particle {
     this.prev = this.pos.copy();
     this.vel = createVector(0, 0);
     this.age = 0;
-    this.maxAge = CONFIG.particles.maxAge * (0.6 + random(0.8));
+    this.maxAge = getParticleMaxAgeFrames(getParticleLifetime()) * (0.6 + random(0.8));
     this.pickPaletteSlot();
   }
 
@@ -127,7 +127,8 @@ class Particle {
 
     this.vel.lerp(v, 0.22);
     this.pos.add(this.vel.copy().mult(getParticleSpeed())).add(random(-1, 1) * CONFIG.particles.jitter, random(-1, 1) * CONFIG.particles.jitter);
-    if (++this.age > this.maxAge || !inBounds(this.pos.x, this.pos.y)) this.respawn();
+    const ageExpired = getParticleLifetime() < 1 && ++this.age > this.maxAge;
+    if (ageExpired || !inBounds(this.pos.x, this.pos.y)) this.respawn();
   }
 
   draw() {

@@ -185,6 +185,19 @@ function getEuropeMapAsset(topicId) {
   return EUROPE_MAP_ASSETS[topicId] ?? EUROPE_MAP_ASSET_DEFAULT;
 }
 
+const SCHENGEN_MAP_ASSETS = Object.freeze({
+  topic1: 'assets/europe-map-schengen-topic1.svg',
+  topic2: 'assets/europe-map-schengen-topic2.svg',
+  topic3: 'assets/europe-map-schengen-topic3.svg',
+  random: 'assets/europe-map-schengen-random.svg'
+});
+
+const SCHENGEN_MAP_ASSET_DEFAULT = 'assets/europe-map-schengen-topic1.svg';
+
+function getSchengenMapAsset(topicId) {
+  return SCHENGEN_MAP_ASSETS[topicId] ?? SCHENGEN_MAP_ASSET_DEFAULT;
+}
+
 function resolveEuropeMapTopicId(topicId) {
   if (topicId) return topicId;
   if (typeof getQuizState === 'function') return getQuizState().topic;

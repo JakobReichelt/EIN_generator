@@ -14,7 +14,7 @@ registerStage({
     const topicColors = getQuizColorScheme(ctx.quizState.topic);
     const levels = [
       { id: 'easy', label: 'Einstieger', x: 960, y: 1080, colorHex: topicColors.difficultyEasy },
-      { id: 'medium', label: 'Kira', x: 1920, y: 1080, colorHex: topicColors.difficultyMedium },
+      { id: 'medium', label: 'Mittel', x: 1920, y: 1080, colorHex: topicColors.difficultyMedium },
       { id: 'hard', label: 'EU-Insider', x: 2880, y: 1080, colorHex: topicColors.difficultyHard }
     ];
 

@@ -12,6 +12,13 @@ const CONFIRM_PARTICLE_REGION = { x: 1780, y: 1741, w: 280, h: 280 };
 
 const CONFIRM_GLYPH_RATIO = 0.4;
 
+const CONFIRM_PARTICLE_PHYSICS = {
+  spawnAnimation: true,
+  skipStageAnim: true,
+  softWanderClamp: true,
+  edgeClamp: true
+};
+
 const CONFIRM_ARROW_SVG =
   '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">' +
   '<path d="M5 12 H19" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>' +
@@ -26,11 +33,32 @@ const confirmParticle = (function confirmParticleModule() {
   let activeOnClick = null;
   let activeLabel = 'Weiter';
 
+  function bindGlyphFollower(reg, follower, regionDef, glyphRatio) {
+    const { w, h } = regionDef;
+    const size = Math.min(w, h) * glyphRatio;
+    const nxMin = (size / 2) / w;
+    const nxMax = 1 - nxMin;
+    const nyMin = (size / 2) / h;
+    const nyMax = 1 - nyMin;
+    const nyViewportMax = Math.min(
+      nyMax,
+      (FIGMA_H - size / 2 - reg.bounds.y) / reg.bounds.h
+    );
+
+    reg.onPosition((rawNx, rawNy) => {
+      const nx = Math.max(nxMin, Math.min(nxMax, rawNx));
+      const ny = Math.max(nyMin, Math.min(nyViewportMax, rawNy));
+      const px = reg.bounds.x + nx * reg.bounds.w;
+      const py = reg.bounds.y + ny * reg.bounds.h;
+      follower.setTarget(px - size / 2, py - size / 2);
+    });
+  }
+
   function spawnParticle(parent, regionDef, glyphHtml, glyphRatio, onClick, ariaLabel, options = {}) {
     const { x, y, w, h } = regionDef;
     const reg = createParticleRegion(parent, x, y, w, h, getConfirmParticleColor(), {
-      spawnAnimation: options.spawnAnimation !== false,
-      skipStageAnim: true
+      ...CONFIRM_PARTICLE_PHYSICS,
+      spawnAnimation: options.spawnAnimation !== false
     });
 
     const size = Math.min(w, h) * glyphRatio;
@@ -44,11 +72,7 @@ const confirmParticle = (function confirmParticleModule() {
     parent.appendChild(glyph);
 
     const follower = createEasedLabelFollower(glyph, cx - size / 2, cy - size / 2, parent);
-    reg.onPosition((nx, ny) => {
-      const px = reg.bounds.x + nx * reg.bounds.w;
-      const py = reg.bounds.y + ny * reg.bounds.h;
-      follower.setTarget(px - size / 2, py - size / 2);
-    });
+    bindGlyphFollower(reg, follower, regionDef, glyphRatio);
 
     const hit = document.createElement('button');
     hit.type = 'button';

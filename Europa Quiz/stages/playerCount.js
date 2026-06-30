@@ -40,11 +40,13 @@ registerStage({
     ];
 
     addSelectableHitArea(screen, singleRegion, () => {
+      window.pauseParticle?.hideStandaloneLanguage?.();
       ctx.setQuizMode('single');
       ctx.goNext();
     }, 'Einzeln spielen', { textAnchor: { x: SINGLE_X, y: SINGLE_Y } });
 
     addSelectableHitArea(screen, multiplayerRegions, () => {
+      window.pauseParticle?.hideStandaloneLanguage?.();
       ctx.setQuizMode('teams');
       ctx.goNext();
     }, 'Gegeneinander spielen', { textAnchor: { x: MULTI_X, y: MULTI_Y }, textHitPad: { x: 480, y: 90 } });

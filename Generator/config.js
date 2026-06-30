@@ -11,7 +11,7 @@ const CONFIG = {
     maxImpulses: 10
   },
   particles: {
-    count: 16000, speed: 0.42, jitter: 0.01, maxAge: 700, strokeAlpha: 45, strokeWeight: 1,
+    count: 16000, speed: 0.42, jitter: 0.01, maxAge: 700, lifetime: 0.65, strokeAlpha: 45, strokeWeight: 1,
     overlapVisibility: 100,
     colorVariance: 1,
     separation: { enabled: true, minDist: 2.2, maxPush: 0.6 }

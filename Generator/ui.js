@@ -5,7 +5,8 @@ let colorTool = {
   container: null, particleSpectrum: null, particleValueText: null, backgroundSpectrum: null, backgroundValueText: null,
   particleRecentColors: [], backgroundRecentColors: [], particleRecentRow: null, backgroundRecentRow: null,
   transparentBackgroundCheckbox: null, gravitationSlider: null, gravitationValueText: null, particleMixSlider: null, trailToBgMixSlider: null,
-  trailFadeSlider: null, trailLowAlphaCullSlider: null, trailLowAlphaCullValueText: null, particleSpeedSlider: null, particleSizeSlider: null, particleSizeValueText: null, particleCountSlider: null, particleCountValueText: null,
+  trailFadeSlider: null, trailLowAlphaCullSlider: null, trailLowAlphaCullValueText: null, particleSpeedSlider: null, particleSizeSlider: null, particleSizeValueText: null,   particleCountSlider: null, particleCountValueText: null,
+  particleLifetimeSlider: null, particleLifetimeValueText: null,
   particleOverlapSlider: null, particleOverlapValueText: null,
   colorVarianceSlider: null, colorVarianceValueText: null,
   particleBaseHSB: null,
@@ -537,6 +538,14 @@ function initColorTool() {
   const particleCountSlider = createSlider(10, 30000, baseCount, 100).parent(countRow);
   const particleCountValueText = createSpan(baseCount.toLocaleString()).parent(countRow).addClass('ui-hex');
 
+  const lifetimeRow = createDiv('').parent(particlesSec).addClass('ui-row');
+  createSpan('Lifetime').parent(lifetimeRow);
+  const lifetimeDefault = Math.max(0, Math.min(1, +CONFIG.particles.lifetime ?? 0.65));
+  const particleLifetimeSlider = createSlider(0, 1, lifetimeDefault, 0.01).parent(lifetimeRow);
+  particleLifetimeSlider.elt.setAttribute('aria-label', 'Particle lifetime');
+  const formatLifetimeLabel = (t) => (t >= 0.995 ? '∞' : Math.round(t * 100) + '%');
+  const particleLifetimeValueText = createSpan(formatLifetimeLabel(lifetimeDefault)).parent(lifetimeRow).addClass('ui-hex');
+
   const overlapRow = createDiv('').parent(particlesSec).addClass('ui-row');
   createSpan('Overlap visibility').parent(overlapRow);
   const overlapDefault = Math.max(0, Math.min(100, Math.round(+CONFIG.particles.overlapVisibility || 0)));
@@ -639,6 +648,13 @@ function initColorTool() {
     const target = getAdaptiveParticleCount(); if (particles.length > target) particles.length = target;
     syncParticleCountToSize();
   });
+  particleLifetimeSlider.input(() => {
+    const t = Math.max(0, Math.min(1, +particleLifetimeSlider.value() || 0));
+    particleLifetimeValueText.html(formatLifetimeLabel(t));
+    if (t >= 1 || !Array.isArray(particles)) return;
+    const frames = getParticleMaxAgeFrames(t);
+    for (const p of particles) p.maxAge = frames * (0.6 + random(0.8));
+  });
 
   // Camera & Navigation
   const cameraSec = createSection('Camera');
@@ -694,6 +710,7 @@ function initColorTool() {
     container, mapSelect, gravitationSlider, gravitationValueText, particleSpectrum, particleValueText, backgroundSpectrum, backgroundValueText,
     particleRecentColors: loadRecentColors(PARTICLE_RECENT_COLORS_STORAGE_KEY), backgroundRecentColors: loadRecentColors(BACKGROUND_RECENT_COLORS_STORAGE_KEY),
     particleRecentRow, backgroundRecentRow, transparentBackgroundCheckbox, trailFadeSlider, trailLowAlphaCullSlider, trailLowAlphaCullValueText, particleSpeedSlider, particleSizeSlider, particleSizeValueText, particleCountSlider, particleCountValueText,
+    particleLifetimeSlider, particleLifetimeValueText,
     particleOverlapSlider, particleOverlapValueText,
     colorVarianceSlider, colorVarianceValueText,
     interactiveModeCheckbox,
@@ -758,6 +775,17 @@ function createUserTransparentBgToggle(parentEl) {
 }
 
 function getParticleSpeed() { const s = colorTool?.particleSpeedSlider; return s ? constrain(+s.value() || 0, 0, 2) : CONFIG.particles.speed; }
+function getParticleLifetime() {
+  const s = colorTool?.particleLifetimeSlider;
+  return s ? constrain(+s.value() || 0, 0, 1) : (CONFIG.particles.lifetime ?? 0.65);
+}
+function getParticleMaxAgeFrames(lifetime01) {
+  if (lifetime01 >= 1) return Infinity;
+  const minFrames = 1;
+  const refFrames = CONFIG.particles.maxAge;
+  const maxFrames = refFrames * 50;
+  return Math.max(minFrames, Math.round(minFrames * Math.pow(maxFrames / minFrames, lifetime01)));
+}
 function getParticleStrokeWeight() { const s = colorTool?.particleSizeSlider; return s ? constrain(+s.value(), 0.05, 100) : CONFIG.particles.strokeWeight; }
 function getParticleMix() { const s = colorTool?.particleMixSlider; return s ? constrain((+s.value() || 0) / 100, 0, 1) : 1; }
 function getTrailToBackgroundMix() { const s = colorTool?.trailToBgMixSlider; return s ? constrain((+s.value() || 0) / 100, 0, 1) : 0; }

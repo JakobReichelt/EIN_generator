@@ -70,6 +70,22 @@ const MOTION_PRESETS = {
     strokeRatio: 0.62,
     jitterMul: 0,
     smoothNoise: false
+  },
+  schengen: {
+    wanderRatio: 0.42,
+    speed: 0.028,
+    speedMul: 0.65,
+    gravMul: 1.4,
+    pullMul: 0.28,
+    noiseForce: 0.72,
+    returnForce: 0.14,
+    velLerp: 0.06,
+    renderEase: 0.12,
+    flowFreq: 0.32,
+    timeScale: 0.000022,
+    strokeRatio: 1,
+    jitterMul: 0,
+    smoothNoise: true
   }
 };
 
@@ -238,7 +254,7 @@ function createParticleRegion(screen, x, y, w, h, colorHex, options = {}) {
   const render = { x: 0, y: 0 };
   const prevRender = { x: 0, y: 0 };
   let started = false;
-  let simulationLocked = false;
+  let simulationLocked = !!options.startSimulationLocked;
 
   const positionCbs = [];
 
@@ -263,6 +279,8 @@ function createParticleRegion(screen, x, y, w, h, colorHex, options = {}) {
     dpr = Math.min(window.devicePixelRatio || 1, 2);
     const nextW = Math.max(1, Math.round(rect.width * dpr));
     const nextH = Math.max(1, Math.round(rect.height * dpr));
+    const prevPxW = pxW;
+    const prevPxH = pxH;
     const sizeChanged = nextW !== pxW || nextH !== pxH;
     pxW = nextW;
     pxH = nextH;
@@ -286,6 +304,24 @@ function createParticleRegion(screen, x, y, w, h, colorHex, options = {}) {
       prevRender.x = pos.x;
       prevRender.y = pos.y;
       started = true;
+    } else if (sizeChanged && simulationLocked) {
+      resetParticleCenter();
+    } else if (sizeChanged && (prevPxW <= 8 || prevPxH <= 8) && nextW > 8 && nextH > 8) {
+      const scaleX = nextW / prevPxW;
+      const scaleY = nextH / prevPxH;
+      pos.x *= scaleX;
+      pos.y *= scaleY;
+      prev.x *= scaleX;
+      prev.y *= scaleY;
+      render.x *= scaleX;
+      render.y *= scaleY;
+      prevRender.x *= scaleX;
+      prevRender.y *= scaleY;
+      if (positionCbs.length) {
+        const nx = render.x / pxW;
+        const ny = render.y / pxH;
+        for (const cb of positionCbs) cb(nx, ny);
+      }
     }
   }
 
@@ -368,9 +404,15 @@ function createParticleRegion(screen, x, y, w, h, colorHex, options = {}) {
 
   function setSimulationLocked(locked) {
     simulationLocked = !!locked;
-    if (simulationLocked && ctx && pxW > 0 && pxH > 0) {
-      resetParticleCenter();
+    if (!ctx || pxW < 1 || pxH < 1) return;
+    resetParticleCenter();
+    if (simulationLocked) {
       drawLockedBlob();
+      return;
+    }
+    ctx.clearRect(0, 0, pxW, pxH);
+    if (positionCbs.length) {
+      for (const cb of positionCbs) cb(0.5, 0.5);
     }
   }
 
@@ -385,6 +427,9 @@ function createParticleRegion(screen, x, y, w, h, colorHex, options = {}) {
 
     if (simulationLocked) {
       drawLockedBlob();
+      if (positionCbs.length) {
+        for (const cb of positionCbs) cb(0.5, 0.5);
+      }
       return;
     }
 
@@ -400,13 +445,17 @@ function createParticleRegion(screen, x, y, w, h, colorHex, options = {}) {
     }
 
     const wanderR = wanderRadiusPx() ?? Math.min(pxW, pxH) * motion.wanderRatio;
-    const { speed, grav, jitter, fade, colorVar, trailCull } = USER_MODE_DEFAULTS;
+    const { speed, grav, jitter, colorVar } = USER_MODE_DEFAULTS;
+    const fade = options.fade ?? USER_MODE_DEFAULTS.fade;
+    const trailCull = options.trailCull ?? USER_MODE_DEFAULTS.trailCull;
     const strokeAlpha = options.strokeAlpha ?? USER_MODE_DEFAULTS.strokeAlpha;
     const velLerp = motion.velLerp;
     const renderEase = motion.renderEase;
     let strokeBase;
     if (options.strokeBaseFigma != null && options.wanderRadius) {
       strokeBase = wanderR * (options.strokeBaseFigma / options.wanderRadius);
+    } else if (options.strokeBaseNorm != null) {
+      strokeBase = Math.min(pxW, pxH) * options.strokeBaseNorm;
     } else {
       strokeBase = options.strokeBasePx ?? Math.min(pxW, pxH);
     }
@@ -456,17 +505,58 @@ function createParticleRegion(screen, x, y, w, h, colorHex, options = {}) {
     pos.x += vel.x * speedScale + driftX;
     pos.y += vel.y * speedScale + driftY;
 
-    if (dist > wanderR) {
-      const excess = (dist - wanderR) / wanderR;
+    const strokeRatio = options.strokeRatio ?? motion.strokeRatio;
+    let pdx = pos.x - cx;
+    let pdy = pos.y - cy;
+    let pdist = Math.hypot(pdx, pdy) || 0.001;
+
+    if (pdist > wanderR) {
+      const excess = (pdist - wanderR) / wanderR;
       const returnForce = motion.returnForce ?? 0.025;
-      vel.x += (dx / dist) * excess * returnForce;
-      vel.y += (dy / dist) * excess * returnForce;
+      vel.x -= (pdx / pdist) * excess * returnForce;
+      vel.y -= (pdy / pdist) * excess * returnForce;
+    }
+
+    if (options.softWanderClamp) {
+      const strokeHalf = strokeBase * strokeRatio * 0.5;
+      const maxR = Math.min(
+        wanderR,
+        Math.min(pxW, pxH) * 0.5 - strokeHalf - 2 * dpr
+      );
+      pdx = pos.x - cx;
+      pdy = pos.y - cy;
+      pdist = Math.hypot(pdx, pdy) || 0.001;
+      if (pdist > maxR && maxR > 0) {
+        const scale = maxR / pdist;
+        pos.x = cx + pdx * scale;
+        pos.y = cy + pdy * scale;
+        const outward = (pdx * vel.x + pdy * vel.y) / pdist;
+        if (outward > 0) {
+          vel.x -= (pdx / pdist) * outward * 0.65;
+          vel.y -= (pdy / pdist) * outward * 0.65;
+        }
+      }
+    }
+
+    if (options.edgeClamp) {
+      const strokeHalf = strokeBase * strokeRatio * 0.5;
+      const margin = strokeHalf + 2 * dpr;
+      pos.x = Math.max(margin, Math.min(pxW - margin, pos.x));
+      pos.y = Math.max(margin, Math.min(pxH - margin, pos.y));
     }
 
     prevRender.x = render.x;
     prevRender.y = render.y;
     render.x += (pos.x - render.x) * renderEase;
     render.y += (pos.y - render.y) * renderEase;
+
+    if (positionCbs.length) {
+      const nx = render.x / pxW;
+      const ny = render.y / pxH;
+      for (const cb of positionCbs) cb(nx, ny);
+    }
+
+    if (options.physicsOnly) return;
 
     fadeTrails(ctx, pxW, pxH, fade);
     // cullFaintTrails runs getImageData over the whole canvas, which is very
@@ -482,18 +572,12 @@ function createParticleRegion(screen, x, y, w, h, colorHex, options = {}) {
     const varied = applyColorVariance(baseHsb, colorVar, t + seed);
     const rgb = hsbToRgb(varied.h, varied.s, varied.b);
     ctx.strokeStyle = `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${(strokeAlpha / 100) * appear})`;
-    ctx.lineWidth = strokeBase * motion.strokeRatio * (0.35 + 0.65 * appear);
+    ctx.lineWidth = strokeBase * strokeRatio * (0.35 + 0.65 * appear);
     ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(prevRender.x, prevRender.y);
     ctx.lineTo(render.x, render.y);
     ctx.stroke();
-
-    if (positionCbs.length) {
-      const nx = render.x / pxW;
-      const ny = render.y / pxH;
-      for (const cb of positionCbs) cb(nx, ny);
-    }
   }
 
   function loop(nowMs) {

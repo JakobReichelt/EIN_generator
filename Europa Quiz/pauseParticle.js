@@ -7,8 +7,11 @@
 // checkmark-style pause glyph rides on top of the wandering blob and follows it.
 //
 // Tapping the pause particle opens a small menu of two more particles laid out
-// diagonally toward the bottom-left: the current language flag and a cross
+// diagonally toward the bottom-left: the current language code and a cross
 // (exit) particle. Tapping pause again closes the menu.
+//
+// On the player-count stage the language particle is always visible on screen;
+// after the user confirms their choice it is hidden until opened via the menu.
 //
 // Coordinate space matches the figma stages: the layer fills the viewport, so
 // the FIGMA_W/FIGMA_H based applyPos() maps to the same on-screen positions.
@@ -20,8 +23,16 @@ function getPauseParticleColor() {
 }
 
 // Wander region for the blob, in figma units, tucked into the top-right corner
-// roughly where the old pause dot sat.
-const PAUSE_PARTICLE_REGION = { x: 3540, y: 40, w: 280, h: 280 };
+// roughly where the old pause dot sat. Inset from the figma right edge so the
+// blob stroke and glyph can wander without clipping off-screen.
+const PAUSE_PARTICLE_REGION = { x: 3480, y: 40, w: 280, h: 280 };
+
+const PAUSE_PARTICLE_PHYSICS = {
+  spawnAnimation: true,
+  skipStageAnim: true,
+  softWanderClamp: true,
+  edgeClamp: true
+};
 
 // Menu particles fanned out toward the bottom-left of the pause particle:
 // the language particle sits to the lower-left, the exit particle further down.
@@ -38,15 +49,6 @@ const PAUSE_LANGUAGE_GLYPH_RATIO = 0.5;
 // Selectable languages, cycled by tapping the language particle. No copy is
 // translated yet — this just advances the stored selection.
 const PAUSE_LANGUAGES = ['de', 'en', 'fr'];
-
-// Generic "language" symbol (a globe), drawn as a white vector to match the
-// pause and cross glyphs instead of a country flag.
-const LANGUAGE_SVG =
-  '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">' +
-  '<circle cx="12" cy="12" r="9" stroke="#fff" stroke-width="2"/>' +
-  '<path d="M3 12 H21" stroke="#fff" stroke-width="2" stroke-linecap="round"/>' +
-  '<path d="M12 3 C7.5 6 7.5 18 12 21 C16.5 18 16.5 6 12 3 Z" stroke="#fff" stroke-width="2" stroke-linejoin="round"/>' +
-  '</svg>';
 
 const PAUSE_SVG =
   '<svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">' +
@@ -70,6 +72,35 @@ const pauseParticle = (function pauseParticleModule() {
   let menuCleanups = [];
   let pauseTeardown = null;
   let pauseControlColor = null;
+  let currentStageId = null;
+  let standaloneLanguageTeardown = null;
+  let standaloneLanguageSuppressed = false;
+
+  function getLanguageGlyphHtml() {
+    const code = PAUSE_LANGUAGES[langIndex].toUpperCase();
+    return `<span class="pause-particle-language-label">${code}</span>`;
+  }
+
+  function bindGlyphFollower(reg, follower, regionDef, glyphRatio) {
+    const { w, h } = regionDef;
+    const size = Math.min(w, h) * glyphRatio;
+    const nxMin = (size / 2) / w;
+    const nxMax = 1 - nxMin;
+    const nyMin = (size / 2) / h;
+    const nyMax = 1 - nyMin;
+    const nxViewportMax = Math.min(
+      nxMax,
+      (FIGMA_W - size / 2 - reg.bounds.x) / reg.bounds.w
+    );
+
+    reg.onPosition((rawNx, rawNy) => {
+      const nx = Math.max(nxMin, Math.min(nxViewportMax, rawNx));
+      const ny = Math.max(nyMin, Math.min(nyMax, rawNy));
+      const px = reg.bounds.x + nx * reg.bounds.w;
+      const py = reg.bounds.y + ny * reg.bounds.h;
+      follower.setTarget(px - size / 2, py - size / 2);
+    });
+  }
 
   // Creates a wandering blob with a glyph riding on top and a transparent hit
   // button covering it. Uses the standard particle spawn (grow/fade-in)
@@ -77,8 +108,8 @@ const pauseParticle = (function pauseParticleModule() {
   function spawnParticle(parent, regionDef, glyphHtml, glyphRatio, onClick, ariaLabel, colorHex, spawnAnimation = true) {
     const { x, y, w, h } = regionDef;
     const reg = createParticleRegion(parent, x, y, w, h, colorHex ?? getPauseParticleColor(), {
-      spawnAnimation,
-      skipStageAnim: true
+      ...PAUSE_PARTICLE_PHYSICS,
+      spawnAnimation
     });
 
     const size = Math.min(w, h) * glyphRatio;
@@ -92,11 +123,7 @@ const pauseParticle = (function pauseParticleModule() {
     parent.appendChild(glyph);
 
     const follower = createEasedLabelFollower(glyph, cx - size / 2, cy - size / 2, parent);
-    reg.onPosition((nx, ny) => {
-      const px = reg.bounds.x + nx * reg.bounds.w;
-      const py = reg.bounds.y + ny * reg.bounds.h;
-      follower.setTarget(px - size / 2, py - size / 2);
-    });
+    bindGlyphFollower(reg, follower, regionDef, glyphRatio);
 
     const hit = document.createElement('button');
     hit.type = 'button';
@@ -117,6 +144,19 @@ const pauseParticle = (function pauseParticleModule() {
     };
   }
 
+  function spawnLanguageParticle(parent, spawnAnimation = true) {
+    return spawnParticle(
+      parent,
+      regionAtOffset(PAUSE_MENU_OFFSETS.language),
+      getLanguageGlyphHtml(),
+      PAUSE_LANGUAGE_GLYPH_RATIO,
+      () => cycleLanguage(),
+      'Sprache wechseln',
+      getPauseParticleColor(),
+      spawnAnimation
+    );
+  }
+
   function regionAtOffset(offset) {
     return {
       x: PAUSE_PARTICLE_REGION.x + offset.x,
@@ -126,6 +166,39 @@ const pauseParticle = (function pauseParticleModule() {
     };
   }
 
+  function teardownStandaloneLanguage() {
+    if (standaloneLanguageTeardown) {
+      standaloneLanguageTeardown();
+      standaloneLanguageTeardown = null;
+    }
+  }
+
+  function syncStandaloneLanguage() {
+    if (currentStageId === 'playerCount' && !standaloneLanguageSuppressed) {
+      if (!standaloneLanguageTeardown) {
+        standaloneLanguageTeardown = spawnLanguageParticle(layer);
+      }
+      return;
+    }
+    teardownStandaloneLanguage();
+    if (currentStageId !== 'playerCount') {
+      standaloneLanguageSuppressed = false;
+    }
+  }
+
+  function hideStandaloneLanguage() {
+    standaloneLanguageSuppressed = true;
+    teardownStandaloneLanguage();
+  }
+
+  function refreshLanguageGlyphs() {
+    if (!layer) return;
+    const code = PAUSE_LANGUAGES[langIndex].toUpperCase();
+    for (const label of layer.querySelectorAll('.pause-particle-language-label')) {
+      label.textContent = code;
+    }
+  }
+
   // Spawn the two menu particles fresh so each open replays the same grow-in
   // animation used elsewhere, with the particles appearing in their final spots.
   function openMenu() {
@@ -133,15 +206,9 @@ const pauseParticle = (function pauseParticleModule() {
     menuOpen = true;
     menu.classList.add('pause-particle-menu--open');
 
-    menuCleanups.push(spawnParticle(
-      menu,
-      regionAtOffset(PAUSE_MENU_OFFSETS.language),
-      LANGUAGE_SVG,
-      PAUSE_LANGUAGE_GLYPH_RATIO,
-      () => cycleLanguage(),
-      'Sprache wechseln',
-      getPauseParticleColor()
-    ));
+    if (currentStageId !== 'playerCount') {
+      menuCleanups.push(spawnLanguageParticle(menu));
+    }
 
     menuCleanups.push(spawnParticle(
       menu,
@@ -169,6 +236,7 @@ const pauseParticle = (function pauseParticleModule() {
 
   function cycleLanguage() {
     langIndex = (langIndex + 1) % PAUSE_LANGUAGES.length;
+    refreshLanguageGlyphs();
   }
 
   function rebuildPauseParticle({ animate = true } = {}) {
@@ -205,6 +273,8 @@ const pauseParticle = (function pauseParticleModule() {
       color,
       false
     );
+    teardownStandaloneLanguage();
+    syncStandaloneLanguage();
   }
 
   function build(onExit) {
@@ -232,13 +302,18 @@ const pauseParticle = (function pauseParticleModule() {
   // Always collapse the menu on a stage change so it never lingers open.
   function update(stageId) {
     if (!layer) return;
+    currentStageId = stageId;
+    if (stageId === 'playerCount') {
+      standaloneLanguageSuppressed = false;
+    }
     closeMenu();
     rebuildPauseParticle();
     const visible = stageId !== 'idle';
     layer.classList.toggle('pause-particle-layer--visible', visible);
+    syncStandaloneLanguage();
   }
 
-  return { init, update, refreshColors };
+  return { init, update, refreshColors, hideStandaloneLanguage };
 })();
 
 window.pauseParticle = pauseParticle;
